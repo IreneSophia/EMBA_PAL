@@ -1,0 +1,117 @@
+---
+title: "Analysis PAL: Behavioural Data"
+author: "Irene Sophia Plank"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(knitr)           # kable
+library(tidyverse)       # tibble stuff
+library(ggplot2)         # plots
+library(ggstatsplot)     # ggplot with stats
+library(pastecs)
+library(ggrain)
+library(cowplot)
+library(readr)
+
+dt.path = paste('/home/emba/Documents/EMBA', 'BVET', sep = "/")
+knitr::opts_knit$set(root.dir = dt.path)
+
+```
+
+## R Markdown
+
+<style type="text/css">
+.main-container {
+  max-width: 1100px;
+  margin-left: auto;
+  margin-right: auto;
+}
+</style>
+
+# Behavioural data
+
+```{r load_data, warning=F, message=F}
+# load the relevant data in long format
+df.tsk = list.files(path = dt.path, pattern = "PAL-BV_*", full.names = T) %>%
+  map_df(~read_csv(., show_col_types = F, col_types = "ccddddccddcd")) %>% 
+  filter(is.na(key)|(key != "tstart" & key != "tend")) %>%
+  mutate(
+    # sometimes participants used the upper row instead of the middle
+    # or moved right with their ring finger to plus instead of 6
+    key = as.numeric(
+      case_when(
+        key == "+" ~ "6",
+        key == "9" ~ "6",
+        key == "7" ~ "4", 
+        TRUE ~ key
+      )
+    )
+  ) %>% 
+  mutate(emotion = as.factor(emotion),
+         choice = case_when(
+                key == 6 & key_pos == "right" ~ "positive",
+                key == 4 & key_pos == "right" ~ "negative",
+                key == 6 & key_pos == "left"  ~ "negative",
+                key == 4 & key_pos == "left"  ~ "positive",
+                ),
+         acc = emotion == choice,
+         noise = as.factor(noise),
+         noise = recode_factor(noise,
+                "2" = "high",
+                "3" = "low",
+                "4" = "none"),
+         expected = as.factor(ut),
+         expected = recode_factor(expected,
+                "0" = "unexpected",
+                "1" = "expected"),
+         rtc = case_when(acc == T ~ rt)) %>%
+  filter(nchar(subID) == 10) %>% 
+  # replace very short and very long RTs with NAs
+  group_by(subID) %>%
+  mutate(rt_up = quantile(rtc, 0.75, na.rm = T) + 1.5 * IQR(rtc, na.rm = T),
+         rtc   = case_when(rtc > 200 & rtc < rt_up ~ rtc),
+         use   = case_when(!is.na(rtc) & acc ~ TRUE,
+                           TRUE ~ FALSE)
+         ) %>%
+  select(subID, ut, noise, rt, rtc, acc, use, expected, emotion, pic_num) 
+
+# does anyone have to be excluded?
+exc = df.tsk %>% group_by(subID) %>% summarise(acc = mean(use)) %>% filter(acc < 2/3)
+exc = as.character(exc$subID)
+print(length(exc)) # print how many have to be excluded
+
+# load pilot participants and add to the list
+pilot = read_csv(paste0(dt.path, "/pilot-subIDs.csv"))
+exc   = c(exc, pilot$subID)
+
+# exclude these participants
+df.tsk = df.tsk %>% filter(!(subID %in% exc))
+
+# save data frame
+saveRDS(df.tsk, "df_PAL.RDS")
+
+# how many are still left
+length(unique(df.tsk$subID))
+
+```
+
+```{r plot_data, warning = F, message = F}
+
+df.tsk_agg = df.tsk %>%
+  group_by(subID, expected) %>%
+  summarise(
+    rt_agg = mean(rtc, na.rm = T),
+    acc    = sum(acc == TRUE),
+    rt_all = mean(rt, na.rm = T)
+  ) %>% ungroup() %>%
+  filter(rt_agg != "NaN")
+
+ggwithinstats(data = df.tsk_agg,
+              x    = expected, 
+              y    = rt_agg, 
+              ylab = "reaction time", xlab = "")
+
+```
