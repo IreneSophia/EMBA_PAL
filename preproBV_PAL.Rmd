@@ -111,21 +111,3 @@ save(file = "df_PAL.RData", list = c("df.tsk", "df.var"))
 length(unique(df.tsk$subID))
 
 ```
-
-```{r plot_data, warning = F, message = F}
-
-df.tsk_agg = df.tsk %>%
-  group_by(subID, expected) %>%
-  summarise(
-    rt_agg = mean(rt.cor, na.rm = T),
-    acc    = sum(acc == TRUE),
-    rt_all = mean(rt, na.rm = T)
-  ) %>% ungroup() %>%
-  filter(rt_agg != "NaN")
-
-ggwithinstats(data = df.tsk_agg,
-              x    = expected, 
-              y    = rt_agg, 
-              ylab = "reaction time", xlab = "")
-
-```
