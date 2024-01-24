@@ -39,43 +39,38 @@ df.tsk = list.files(path = dt.path, pattern = "PAL-BV_*", full.names = T) %>%
   map_df(~read_csv(., show_col_types = F, col_types = "ccddddccddcd")) %>% 
   filter(is.na(key)|(key != "tstart" & key != "tend")) %>%
   mutate(
-    # sometimes participants used the upper row instead of the middle
+    # sometimes participants used other rows instead of the middle one
     # or moved right with their ring finger to plus instead of 6
-    key = as.numeric(
-      case_when(
-        key == "+" ~ "6",
-        key == "9" ~ "6",
-        key == "7" ~ "4", 
-        TRUE ~ key
-      )
-    ),
-    emotion = as.factor(emotion),
+    key = case_when(
+        key == "+" | key == "9" | key == "3" | key == "6" ~ "right",
+        key == "7" | key == "1" | key == "4" ~ "left"
+      ),
+    key_pos = case_when(
+      key_pos == "rught" ~ "right",
+      T ~ key_pos
+    )
+    ) %>%
+  select(subID, key_pos, trl, key, rt)
+
+# load the information on the trials from the experiment file and merge with data
+df.tsk = merge(df.tsk, 
+               read_csv(file.path(dt.path, 'PAL_scheme-pic.csv'), show_col_types = F)) %>%
+  mutate_if(is.character, as.factor) %>%
+  mutate(
     choice = case_when(
-           key == 6 & key_pos == "right" ~ "positive",
-           key == 4 & key_pos == "right" ~ "negative",
-           key == 6 & key_pos == "left"  ~ "negative",
-           key == 4 & key_pos == "left"  ~ "positive",
+           key == "right" & key_pos == "right" ~ "positive",
+           key == "left"  & key_pos == "right" ~ "negative",
+           key == "right" & key_pos == "left"  ~ "negative",
+           key == "left"  & key_pos == "left"  ~ "positive",
            ),
-    acc = case_when(emotion == choice ~ T,
+    acc = case_when(emo == choice ~ T,
                     T ~ F),
-    noise = as.factor(noise),
-    noise = recode_factor(noise,
-           "2" = "high",
-           "3" = "low",
-           "4" = "none"),
-    expected = as.factor(ut),
-    expected = recode_factor(expected,
-           "0" = "unexpected",
-           "1" = "expected"),
     rt.cor = case_when(acc == T ~ rt),
-    # add the phase to the data based on trial number
-    phase  = fct_relevel(case_when(
-           trl > 0   & trl <= 72 ~ "prevolatile",
-           trl > 264 & trl <= 336 ~ "postvolatile",
-           T ~ "volatile"
-           ), c("prevolatile", "volatile", "postvolatile"))
+    # change factor levels for phase and difficulty
+    phase      = fct_relevel(phase, c("prevolatile", "volatile", "postvolatile")),
+    difficulty = fct_relevel(difficulty, c("easy", "medium", "difficult"))
   ) %>%
-  filter(nchar(subID) == 10) %>% 
+  filter(substr(subID, 1, 3) != "EMO") %>% 
   group_by(subID) %>%
   mutate(
          # replace very short and very long RTs with NAs
@@ -84,7 +79,7 @@ df.tsk = list.files(path = dt.path, pattern = "PAL-BV_*", full.names = T) %>%
          use   = case_when(!is.na(rt.cor) & acc ~ TRUE,
                            TRUE ~ FALSE)
          ) %>%
-  select(subID, phase, trl, expected, emotion, pic_num, ut, noise, rt, rt.cor, acc, use) 
+  select(subID, phase, trl, expected, emo, tone, ut, difficulty, rt, rt.cor, acc, use) 
 
 # does anyone have to be excluded?
 exc = df.tsk %>% group_by(subID) %>% summarise(acc = mean(use)) %>% filter(acc < 2/3)
@@ -96,11 +91,12 @@ pilot = read_csv(paste0(dt.path, "/pilot-subIDs.csv"))
 exc   = c(exc, pilot$subID)
 
 # exclude these participants
-df.tsk = df.tsk %>% filter(!(subID %in% exc))
+df.tsk = df.tsk %>% filter(!(subID %in% exc)) %>%
+  arrange(subID, trl)
 
 # calculate standard deviation of reaction times
 df.var = df.tsk %>%
-  group_by(subID, phase, noise, expected) %>%
+  group_by(subID, phase, difficulty, expected) %>%
   summarise(
     rt.var = sd(rt.cor, na.rm = T)
   )
