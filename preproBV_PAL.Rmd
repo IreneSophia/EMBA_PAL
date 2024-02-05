@@ -99,7 +99,7 @@ df.var = df.tsk %>%
   group_by(subID, phase, difficulty, expected) %>%
   summarise(
     rt.var = sd(rt.cor, na.rm = T),
-    rt.ste = sd(rt.cor, na.rm = T)/n()
+    rt.se  = sd(rt.cor, na.rm = T)/n()
   )
 
 # save data frames
