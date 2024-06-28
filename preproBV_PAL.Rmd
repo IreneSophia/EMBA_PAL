@@ -9,12 +9,6 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 library(knitr)           # kable
 library(tidyverse)       # tibble stuff
-library(ggplot2)         # plots
-library(ggstatsplot)     # ggplot with stats
-library(pastecs)
-library(ggrain)
-library(cowplot)
-library(readr)
 
 dt.path = paste('/home/emba/Documents/EMBA', 'BVET', sep = "/")
 knitr::opts_knit$set(root.dir = dt.path)
@@ -85,6 +79,8 @@ df.tsk = merge(df.tsk,
 exc = df.tsk %>% group_by(subID) %>% summarise(acc = mean(use)) %>% filter(acc < 2/3)
 exc = as.character(exc$subID)
 print(length(exc)) # print how many have to be excluded
+# save the excluded subjects
+write(exc, file.path(dt.path, "PAL_exc.txt"))
 
 # load pilot participants and add to the list
 pilot = read_csv(paste0(dt.path, "/pilot-subIDs.csv"))
@@ -96,14 +92,19 @@ df.tsk = df.tsk %>% filter(!(subID %in% exc)) %>%
 
 # calculate standard deviation of reaction times
 df.var = df.tsk %>%
-  group_by(subID, phase, difficulty, expected) %>%
+  group_by(subID, phase, expected) %>% 
   summarise(
+    totaln = n(),
+    valuen = sum(!is.na(rt.cor)),
     rt.var = sd(rt.cor, na.rm = T),
     rt.min = min(rt.cor, na.rm = T),
     rt.max = max(rt.cor, na.rm = T),
     rt.iqr = IQR(rt.cor, na.rm = T),
     rt.rng = rt.max - rt.min
-  )
+  ) %>%
+  mutate(
+    perc = valuen/totaln
+  ) %>% filter(perc >= 2/3)
 
 # save data frames
 save(file = "df_PAL.RData", list = c("df.tsk", "df.var"))
