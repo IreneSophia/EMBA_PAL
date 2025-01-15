@@ -1,33 +1,7 @@
----
-title: "Analysis PAL: Behavioural Data"
-author: "Irene Sophia Plank"
-date: "`r Sys.Date()`"
-output: html_document
----
-
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-library(knitr)           # kable
 library(tidyverse)       # tibble stuff
 
 dt.path = paste('/home/emba/Documents/EMBA', 'BVET', sep = "/")
-knitr::opts_knit$set(root.dir = dt.path)
 
-```
-
-## R Markdown
-
-<style type="text/css">
-.main-container {
-  max-width: 1100px;
-  margin-left: auto;
-  margin-right: auto;
-}
-</style>
-
-# Behavioural data
-
-```{r load_data, warning=F, message=F}
 # load the relevant data in long format
 df.tsk = list.files(path = dt.path, pattern = "PAL-BV_*", full.names = T) %>%
   map_df(~read_csv(., show_col_types = F, col_types = "ccddddccddcd")) %>% 
@@ -64,7 +38,6 @@ df.tsk = merge(df.tsk,
     phase      = fct_relevel(phase, c("prevolatile", "volatile", "postvolatile")),
     difficulty = fct_relevel(difficulty, c("easy", "medium", "difficult"))
   ) %>%
-  filter(substr(subID, 1, 3) != "EMO") %>% 
   group_by(subID) %>%
   mutate(
          # replace very short and very long RTs with NAs
@@ -78,38 +51,32 @@ df.tsk = merge(df.tsk,
 # does anyone have to be excluded?
 exc = df.tsk %>% group_by(subID) %>% summarise(acc = mean(use)) %>% filter(acc < 2/3)
 exc = as.character(exc$subID)
-print(length(exc)) # print how many have to be excluded
-# save the excluded subjects
-write(exc, file.path(dt.path, "PAL_exc.txt"))
 
-# load pilot participants and add to the list
-pilot = read_csv(paste0(dt.path, "/pilot-subIDs.csv"))
+# load pilot participants
+pilot = read_csv(paste0(dt.path, "/pilot-subIDs.csv"), show_col_types = F)
+# save the excluded subjects minus the pilot participants
+write(setdiff(exc, pilot$subID), file.path(dt.path, "PAL_exc.txt"))
+# add pilot participants to the list
 exc   = c(exc, pilot$subID)
 
 # exclude these participants
 df.tsk = df.tsk %>% filter(!(subID %in% exc)) %>%
   arrange(subID, trl)
 
-# calculate standard deviation of reaction times
+# calculate variance of reaction times: no difficulty due to suboptimal posterior fit
 df.var = df.tsk %>%
   group_by(subID, phase, expected) %>% 
   summarise(
     totaln = n(),
     valuen = sum(!is.na(rt.cor)),
-    rt.var = sd(rt.cor, na.rm = T),
-    rt.min = min(rt.cor, na.rm = T),
-    rt.max = max(rt.cor, na.rm = T),
-    rt.iqr = IQR(rt.cor, na.rm = T),
-    rt.rng = rt.max - rt.min
+    rt.var = sd(rt.cor, na.rm = T)
   ) %>%
   mutate(
     perc = valuen/totaln
   ) %>% filter(perc >= 2/3)
 
 # save data frames
-save(file = "df_PAL.RData", list = c("df.tsk", "df.var"))
+save(file = file.path(dt.path, "df_PAL.RData"), list = c("df.tsk", "df.var"))
 
 # how many are still left
 length(unique(df.tsk$subID))
-
-```
