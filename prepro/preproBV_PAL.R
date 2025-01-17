@@ -33,7 +33,6 @@ df.tsk = merge(df.tsk,
            ),
     acc = case_when(emo == choice ~ T,
                     T ~ F),
-    rt.cor = case_when(acc == T ~ rt),
     # change factor levels for phase and difficulty
     phase      = fct_relevel(phase, c("prevolatile", "volatile", "postvolatile")),
     difficulty = fct_relevel(difficulty, c("easy", "medium", "difficult"))
@@ -41,15 +40,17 @@ df.tsk = merge(df.tsk,
   group_by(subID) %>%
   mutate(
          # replace very short and very long RTs with NAs
-         rt.up = quantile(rt.cor, 0.75, na.rm = T) + 1.5 * IQR(rt.cor, na.rm = T),
-         rt.cor   = case_when(rt.cor > 200 & rt.cor < rt.up ~ rt.cor),
-         use   = case_when(!is.na(rt.cor) & acc ~ TRUE,
-                           TRUE ~ FALSE)
+         rt.upper = quantile(rt, 0.75, na.rm = T) + 1.5 * IQR(rt, na.rm = T),
+         rt.lower = quantile(rt, 0.25, na.rm = T) - 1.5 * IQR(rt, na.rm = T),
+         use      = if_else(rt > rt.lower & rt < rt.upper, T, F),
+         rt.cor   = if_else(use == T & acc == T, rt, NA),
+         rt.use   = if_else(use == T, rt, NA)
          ) %>%
-  select(subID, phase, trl, expected, emo, tone, ut, difficulty, rt, rt.cor, acc, use) 
+  select(subID, phase, trl, expected, emo, tone, ut, difficulty, 
+         rt, rt.cor, rt.use, acc, use) 
 
 # does anyone have to be excluded?
-exc = df.tsk %>% group_by(subID) %>% summarise(acc = mean(use)) %>% filter(acc < 2/3)
+exc = df.tsk %>% group_by(subID) %>% summarise(acc = mean(!is.na(rt.cor))) %>% filter(acc < 2/3)
 exc = as.character(exc$subID)
 
 # load pilot participants
@@ -63,7 +64,8 @@ exc   = c(exc, pilot$subID)
 df.tsk = df.tsk %>% filter(!(subID %in% exc)) %>%
   arrange(subID, trl)
 
-# calculate variance of reaction times: no difficulty due to suboptimal posterior fit
+# calculate variance of reaction times: 
+# no difficulty due to suboptimal posterior fit
 df.var = df.tsk %>%
   group_by(subID, phase, expected) %>% 
   summarise(
