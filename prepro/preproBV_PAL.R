@@ -1,9 +1,10 @@
 library(tidyverse)       # tibble stuff
 
 dt.path = paste('/home/emba/Documents/EMBA', 'BVET', sep = "/")
+#dt.path = paste('/home/emba/Documents/EMBA', 'BVET-explo', sep = "/")
 
 # load the relevant data in long format
-df.tsk = list.files(path = dt.path, pattern = "PAL-BV_*", full.names = T) %>%
+df.tsk = list.files(path = dt.path, pattern = "PAL-BV*", full.names = T) %>%
   map_df(~read_csv(., show_col_types = F, col_types = "ccddddccddcd")) %>% 
   filter(is.na(key)|(key != "tstart" & key != "tend")) %>%
   mutate(
@@ -64,21 +65,8 @@ exc   = c(exc, pilot$subID)
 df.tsk = df.tsk %>% filter(!(subID %in% exc)) %>%
   arrange(subID, trl)
 
-# calculate variance of reaction times: 
-# no difficulty due to suboptimal posterior fit
-df.var = df.tsk %>%
-  group_by(subID, phase, expected) %>% 
-  summarise(
-    totaln = n(),
-    valuen = sum(!is.na(rt.cor)),
-    rt.var = sd(rt.cor, na.rm = T)
-  ) %>%
-  mutate(
-    perc = valuen/totaln
-  ) %>% filter(perc >= 2/3)
-
 # save data frames
-save(file = file.path(dt.path, "df_PAL.RData"), list = c("df.tsk", "df.var"))
+saveRDS(df.tsk, file = file.path(dt.path, "df_tsk.rds"))
 
 # how many are still left
 length(unique(df.tsk$subID))
