@@ -40,12 +40,14 @@ df.tsk = merge(df.tsk,
   ) %>%
   group_by(subID) %>%
   mutate(
+         # only include reaction times where any key was pressed
+         rt = if_else(!is.na(key), rt, NA),
          # replace very short and very long RTs with NAs
          rt.upper = quantile(rt, 0.75, na.rm = T) + 1.5 * IQR(rt, na.rm = T),
          rt.lower = quantile(rt, 0.25, na.rm = T) - 1.5 * IQR(rt, na.rm = T),
          use      = if_else(rt > rt.lower & rt < rt.upper, T, F),
          rt.cor   = if_else(use == T & acc == T, rt, NA),
-         rt.use   = if_else(use == T & !is.na(key), rt, NA)
+         rt.use   = if_else(use == T, rt, NA)
          ) %>%
   select(subID, phase, trl, expected, emo, tone, ut, difficulty, 
          rt.cor, rt.use, acc) 
