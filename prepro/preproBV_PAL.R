@@ -1,7 +1,7 @@
 library(tidyverse)       # tibble stuff
 
 dt.path = paste('/home/emba/Documents/EMBA', 'BVET', sep = "/")
-#dt.path = paste('/home/emba/Documents/EMBA', 'BVET-explo', sep = "/")
+dt.path = paste('/home/emba/Documents/EMBA', 'BVET-explo', sep = "/")
 
 # load the relevant data in long format
 df.tsk = list.files(path = dt.path, pattern = "PAL-BV*", full.names = T) %>%
@@ -68,7 +68,7 @@ df.tsk = df.tsk %>% filter(!(subID %in% exc)) %>%
   arrange(subID, trl)
 
 # save data frames
-saveRDS(df.tsk, file = file.path(dt.path, "df_tsk.rds"))
+saveRDS(df.tsk, file = file.path(dt.path, "PAL_tsk.rds"))
 
 # how many are still left
 length(unique(df.tsk$subID))
