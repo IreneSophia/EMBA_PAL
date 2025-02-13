@@ -253,7 +253,7 @@ bf_sens_4int = function(m.orig, pred1, pred2, pred3, pred4, pr.desc, main.code, 
   }
   
   write(sprintf("\n---------------------------------------\n%s:\t%s\n", now(), pr.desc), file.log, append = TRUE)
-  write(sprintf("%s:\t%s * %s * %s", now(), pred1, pred2, pred3), file.log, append = TRUE)
+  write(sprintf("%s:\t%s * %s * %s * %s", now(), pred1, pred2, pred3, pred4), file.log, append = TRUE)
   # determine the priors
   if (pr.desc == "chosen") {
     # extract the priors

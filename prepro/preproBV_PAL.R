@@ -1,6 +1,6 @@
 library(tidyverse)       # tibble stuff
 
-dt.path = paste('/home/emba/Documents/EMBA', 'BVET', sep = "/")
+#dt.path = paste('/home/emba/Documents/EMBA', 'BVET', sep = "/")
 dt.path = paste('/home/emba/Documents/EMBA', 'BVET-explo', sep = "/")
 
 # load the relevant data in long format
@@ -36,7 +36,8 @@ df.tsk = merge(df.tsk,
                     T ~ F),
     # change factor levels for phase and difficulty
     phase      = fct_relevel(phase, c("prevolatile", "volatile", "postvolatile")),
-    difficulty = fct_relevel(difficulty, c("easy", "medium", "difficult"))
+    difficulty = fct_relevel(difficulty, c("easy", "medium", "difficult")),
+    pic.id     = substr(pic_name, 8,11)
   ) %>%
   group_by(subID) %>%
   mutate(
@@ -49,7 +50,7 @@ df.tsk = merge(df.tsk,
          rt.cor   = if_else(use == T & acc == T, rt, NA),
          rt.use   = if_else(use == T, rt, NA)
          ) %>%
-  select(subID, phase, trl, expected, emo, tone, ut, difficulty, 
+  select(subID, phase, trl, expected, emo, tone, ut, difficulty, pic.id, rt,
          rt.cor, rt.use, acc) 
 
 # does anyone have to be excluded?
