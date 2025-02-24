@@ -1,4 +1,4 @@
-*Version 1.0*
+*Version 1.2*
 
 EMBA analysis pipeline: Bayesian workflow for HGF modelling (EMBA_HGF)
 ========================================================================
