@@ -1,8 +1,12 @@
 /_brms_SBC_cache/res_*.rds
 /_brms_SBC_cache/dat_*.rds
+/_brms_sens_cache/*.rds
 /*_bf.rds
+/HGF_results*
 /EMBA_HGF/tapas*
 /EMBA_HGF/RainCloud*
+/EMBA_HGF/models/emba_e*
+/EMBA_HGF/models/emba_l*
+/EMBA_HGF/models/EMBA*
 /EMBA_HGF/VBA*
-/EMBA_HGF/workflow/plot*
 /EMBA_HGF/workflow/anna*
