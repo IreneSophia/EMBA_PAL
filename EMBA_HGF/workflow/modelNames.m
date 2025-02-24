@@ -38,12 +38,12 @@ end
 % Perception model name
 % The workflow assumes that the perception model is the same for all
 % observation models > this model needs to be in the tapas HGF folder
-prcNamesList = ["tapas_ehgf_binary_pu_tbt", "EMBA_ehgf_binary_pu_tbt_2level"]; %;
+prcNamesList = ["tapas_ehgf_binary_pu_tbt", "emba_hgf_binary_pu_tbt"]; %;
 
 % List the display names of the perception models.
 % It is best to keep them short, as these strings will be appended to
 % output file names, also better not to use spaces or special characters
-prcNamesDisp = ["eHGF3", "eHGF2"];
+prcNamesDisp = ["eHGF", "HGF"];
 if (numel(prcNamesDisp) ~= numel(prcNamesList))
     error('The number of model names does not match the number of config names. Check your input!')
 end

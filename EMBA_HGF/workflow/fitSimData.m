@@ -12,6 +12,8 @@ function [] = fitSimData(modSpaceRobMean, nSim, parallel, local_cores, saveDir)
 %                                           1 - parallel
 %                                           0 - serial
 %
+%   local_cores         double              how many cores to use for parallel
+%
 %   saveDir             char array          base output directory
 %-----------------------------------------------------------------------------
 %

@@ -28,6 +28,12 @@ sim = load(fullfile(saveDir, 'sim', 'simulated_data'));
 res = struct();
 res.sim = sim;
 
+% Create directory for figures
+figdir = fullfile(saveDir, 'figures', 'model_identifiability');
+if ~exist(figdir, 'dir')
+   mkdir(figdir)
+end
+
 %% Load and store results from model inversion
 
 for n = 1:nSim
@@ -88,12 +94,24 @@ bmc.rfx.pxp = NaN(size(bmc.rfx.Ef));
 
 % toolbox settings for BMS results display
 bmc.opt.verbose = false;
-bmc.opt.DisplayWin = false;
+bmc.opt.DisplayWin = true;
+
+txt = {};
+for m = 1:size(modSpace, 2)
+    % add to the title
+    txt = [txt, char(modSpace(m).name)];
+end
+bmc.opt.modelNames = txt;
 
 % run BMS for the data generating models
 for m = 1:nModels
     L = rec.model(m).LME';
     [post, out] = VBA_groupBMC(L, bmc.opt); 
+    figpath = fullfile(figdir,...
+            ['model_ident_bmc_' convertStringsToChars(modSpace(m).name)]);
+    print(figpath, '-dpng');
+    print(figpath, '-dsvg');
+    close;
     bmc.out{m} = out;
     bmc.post{m} = post;
     bmc.rfx.Ef(m,:)  = out.Ef';

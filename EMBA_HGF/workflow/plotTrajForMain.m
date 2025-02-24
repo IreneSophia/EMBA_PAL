@@ -1,17 +1,16 @@
-function [] = fitPilotData(modSpace, nPilots, pilot, parallel, local_cores, saveDir)
-% Fit all models for each pilot subject.
-% Based on hessetal_spirl_analysis/job_runner_2_pilots_modinv.m
+function [] = plotTrajForMain(modSpace, parallel, local_cores, saveDir)
+% 'binary_model' plots (or trajectory plots) for all simulated subjects
+% Based on hessetal_spirl_analysis/job_runner_plot_results.m, lines
+% 919-926
 %
 % INPUT
 %   modSpace            struct              model space
 %
-%   nPilots             integer             number of pilot participants
-%
-%   pilot               struct              pilot data
-%
 %   parallel            0 or 1              parallelizaion switch:
 %                                           1 - parallel
 %                                           0 - serial
+%
+%   local_cores         double              how many cores to use for parallel
 %
 %   saveDir             char array          base output directory
 %-----------------------------------------------------------------------------
@@ -24,10 +23,12 @@ function [] = fitPilotData(modSpace, nPilots, pilot, parallel, local_cores, save
 % Licence (GPL), version 3. For further details, see the file LICENSE or <http://www.gnu.org/licenses/>.
 %-----------------------------------------------------------------------------
 
-disp('Fitting pilot data')
+%% REC: plot continuous trajectories of the models per subject
 
-% Number of models
-nModels = size(modSpace, 2);
+load(fullfile(saveDir, 'main', 'full_results.mat'), 'res');
+
+% Optional plotting of standard deviation for upper levels (true or false)
+plotsd = true;
 
 if (parallel)
     % request cores
@@ -38,10 +39,18 @@ else
     maxNumWorkers = 0;
 end
 
-parfor (n=1:nPilots, maxNumWorkers)
+nModels = size(res.est,1);
+
+parfor (sub=1:size(res.est,2), maxNumWorkers)
     for m = 1:nModels
-        fprintf('------------------ %d ------------------\n', m)
-        invertModelPilot(n, m, modSpace, pilot, saveDir);
+        emba_ehgf_binary_pu_tbt_plotTraj(res.est(m,sub), plotsd)
+        figdir = fullfile(saveDir, 'figures', 'main_traj');
+        if ~exist(figdir, 'dir')
+            mkdir(figdir)
+        end
+        print(strcat(figdir, filesep, 'traj', '_sub-', num2str(res.est(m,sub).subID), '_', modSpace(m).name), '-dpng');
+        print(strcat(figdir, filesep, 'traj', '_sub-', num2str(res.est(m,sub).subID), '_', modSpace(m).name), '-dsvg');
+        close;
     end
 end
 
@@ -50,5 +59,5 @@ if (parallel)
     pool.delete()
 end
 
-disp('Pilot data fitting done.')
+
 end

@@ -1,4 +1,4 @@
-function [ModelSpace] = setupModelSpace(obsNamesDisp, prcNamesDisp, obsNamesList, prcNamesList)
+function [ModelSpace] = setupModelSpace(obsNamesDisp, prcNamesDisp, obsNamesList, prcNamesList, allComb)
 % Sets up the initial model space. 
 % Based on hessetal_spirl_analysis/utils/spirl_setup_model_space.m
 %
@@ -12,6 +12,11 @@ function [ModelSpace] = setupModelSpace(obsNamesDisp, prcNamesDisp, obsNamesList
 %
 %   prcNamesList        array of strings    array of perception model
 %                                           names
+%
+%   allComb             boolean             all possible combinations, if
+%                                           false, then all other input 
+%                                           must be same length
+% 
 %-----------------------------------------------------------------------------
 % 
 % Copyright (C) 2024 Anna Yurova, Irene Sophia Plank, LMU University Hospital; 
@@ -30,29 +35,53 @@ ModelSpace = struct();
 % counter variable
 x = 0;
 
-% loop through the perception models
-for i = 1:numel(prcNamesList)
+if allComb
 
-    % loop through the observation models
-    for j = 1:numel(obsNamesList)
-
-        % increase counter 
-        x = x + 1;
-
-        % Combine model names
-        ModelSpace(x).name = prcNamesDisp(i) + "-" + obsNamesDisp(j);
-
-        % Setup the perception model
-        ModelSpace(x).prc = prcNamesList(i);
-        ModelSpace(x).prc_config = eval(strcat(prcNamesList(i), '_config'));
+    % loop through the perception models
+    for i = 1:numel(prcNamesList)
     
-        % Setup the observation model
-        ModelSpace(x).obs = obsNamesList(j);
-        ModelSpace(x).obs_config = eval(strcat(obsNamesList(j), '_config'));
-
+        % loop through the observation models
+        for j = 1:numel(obsNamesList)
+    
+            % increase counter 
+            x = x + 1;
+    
+            % Combine model names
+            ModelSpace(x).name = prcNamesDisp(i) + "-" + obsNamesDisp(j);
+    
+            % Setup the perception model
+            ModelSpace(x).prc = prcNamesList(i);
+            ModelSpace(x).prc_config = eval(strcat(prcNamesList(i), '_config'));
+        
+            % Setup the observation model
+            ModelSpace(x).obs = obsNamesList(j);
+            ModelSpace(x).obs_config = eval(strcat(obsNamesList(j), '_config'));
+    
+        end
+    
     end
 
+else
+
+    % loop through inputs
+    for i = 1:length(obsNamesList)
+
+        % Combine model names
+        ModelSpace(i).name = prcNamesDisp(i) + "-" + obsNamesDisp(i);
+
+        % Setup the perception model
+        ModelSpace(i).prc = prcNamesList(i);
+        ModelSpace(i).prc_config = eval(strcat(prcNamesList(i), '_config'));
+    
+        % Setup the observation model
+        ModelSpace(i).obs = obsNamesList(i);
+        ModelSpace(i).obs_config = eval(strcat(obsNamesList(i), '_config'));
+
+    end
+    
 end
+
+
 
 %% Find free parameters
 % Note that it relies on the fact, that in the perception model, the

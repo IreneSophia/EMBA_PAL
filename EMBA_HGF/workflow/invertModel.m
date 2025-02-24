@@ -28,9 +28,16 @@ options = setupOpt_and_randSeed();
 
 for m = 1:length(modSpace)
 
+    % check whether tbt
+    if contains(modSpace(m).prc, "tbt")
+        u = sub.u;
+    else
+        u = sub.u(:,1);
+    end
+
     % Invert the model
     est = tapas_fitModel(sub.y,... % responses
-                sub.u,... % input sequence
+                u,... % input sequence
                 modSpace(m).prc_config,... %Prc fitting model
                 modSpace(m).obs_config,... %Obs fitting model
                 options.opt_config); %opt algo
@@ -40,9 +47,9 @@ for m = 1:length(modSpace)
     est.subID = sub.subID;
     
     % Save model fit as struct
-    save_path = fullfile(saveDir, 'data', ['sub' num2str(sub.subID)], "est_mod_" + modSpace.name);
-    if ~exist(fullfile(saveDir, 'data', ['sub' num2str(sub.subID)]), 'dir')
-       mkdir(fullfile(saveDir, 'data', ['sub' num2str(sub.subID)]))
+    save_path = fullfile(saveDir, 'main', ['sub' num2str(sub.subID)], "est_mod_" + modSpace(m).name);
+    if ~exist(fullfile(saveDir, 'main', ['sub' num2str(sub.subID)]), 'dir')
+       mkdir(fullfile(saveDir, 'main', ['sub' num2str(sub.subID)]))
     end
     save(save_path, '-struct', 'est');
 

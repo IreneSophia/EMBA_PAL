@@ -27,9 +27,16 @@ function [] = invertModelPilot(n, m, modSpace, pilot, saveDir)
 % seed for the random number generator every time
 options = setupOpt_and_randSeed();
 
+% check whether tbt
+if contains(modSpace(m).prc, "tbt")
+    u = pilot.data(n).u;
+else
+    u = pilot.data(n).u(:,1);
+end
+
 % Invert the model
 est = tapas_fitModel(pilot.data(n).y,... % responses
-            pilot.data(n).u,... % input sequence
+            u,... % input sequence
             modSpace(m).prc_config,... %Prc fitting model
             modSpace(m).obs_config,... %Obs fitting model
             options.opt_config); %opt algo

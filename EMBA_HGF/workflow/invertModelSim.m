@@ -31,22 +31,37 @@ function [] = invertModelSim(n, m, i, modSpaceRobMean, sim, saveDir)
 % This function is called many times through out the code and resets the
 % seed for the random number generator every time
 options = setupOpt_and_randSeed();
-n
-m
-i
 
-% Invert the model
-est = tapas_fitModel(sim.sub(n,m).data.y,... % responses
-    sim.sub(n,m).data.u,... % input sequence
-    modSpaceRobMean(i).prc_config,... %Prc fitting model
-    modSpaceRobMean(i).obs_config,... %Obs fitting model
-    options.opt_config); %opt algo
-
+% set up where to save it
 save_path = fullfile(saveDir, 'sim', ['sim_sub', num2str(n)]);
 if ~exist(save_path, 'dir')
    mkdir(save_path)
 end
-save([save_path filesep 'sim_mod_', convertStringsToChars(modSpaceRobMean(m).name),...
-    '_est_mod_', convertStringsToChars(modSpaceRobMean(i).name)], '-struct', 'est');
+filename = [save_path filesep 'sim_mod_', convertStringsToChars(modSpaceRobMean(m).name),...
+    '_est_mod_', convertStringsToChars(modSpaceRobMean(i).name) '.mat'];
+
+if ~exist(filename, 'file')
+    
+    fprintf('------------------- sim %d: data based on %d, fitted with %d -------------------\n', ...
+        n, m, i) % number of simulation, number of model for simulating, number of model to be fit
+
+
+    % check whether tbt
+    if contains(modSpaceRobMean(i).prc, "tbt")
+        u = sim.sub(n,m).data.u;
+    else
+        u = sim.sub(n,m).data.u(:,1);
+    end
+    
+    % Invert the model
+    est = tapas_fitModel(sim.sub(n,m).data.y,... % responses
+        u,... % input sequence
+        modSpaceRobMean(i).prc_config,... %Prc fitting model
+        modSpaceRobMean(i).obs_config,... %Obs fitting model
+        options.opt_config); %opt algo
+    
+    save(filename, '-struct', 'est');
+
+end
 
 end

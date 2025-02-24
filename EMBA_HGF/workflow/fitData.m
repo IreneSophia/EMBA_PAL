@@ -38,11 +38,6 @@ parfor (n=1:length(data), maxNumWorkers)
     invertModel(data(n), modSpace, saveDir);
 end
 
-% Accumulate the results. Necessary for some of the plotting. Not the most
-% efficient way to do it. Can be commented out if the corresponding plots
-% are not used.
-accumulateForPlotting('data', modSpace, saveDir)
-
 % shuting down cores
 if (parallel)
     pool.delete()

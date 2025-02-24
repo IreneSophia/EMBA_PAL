@@ -36,6 +36,7 @@ Rigoux, L., Mathys, C., Harrison, O.K., Heinzle, J., Frässle, S., Stephan, K.E.
 Bayesian Workflow for Generative Modeling in Computational Psychiatry. 
 *bioRxiv*, https://doi.org/10.1101/2024.02.19.581001
 
+The first version of this pipeline was developed by Anna Yurova in a separate repository. The toolbox was moved to this repository after Irene Sophia Plank started adapting the pipeline. 
 
 ------------
 INSTALLATION
@@ -43,9 +44,9 @@ INSTALLATION
 
 EMBA_HGF is written in MATLAB, make sure you have a valid installation of MATLAB.
 
-Please download EMBA_HGF from the repository:
+Please download EMBA_HGF from the general PAL repository of the project:
 
-<INSERT REPO link>
+https://github.com/IreneSophia/EMBA_PAL
 
 Download and extract the following toolboxes into the main folder:
 - [tapas](https://github.com/translationalneuromodeling/tapas/releases/tag/v6.0.2)
