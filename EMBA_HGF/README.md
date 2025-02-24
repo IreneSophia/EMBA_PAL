@@ -12,7 +12,6 @@ Contributors
 | Project lead, developer:            | Irene Sophia Plank                             |
 | Computational scientist, developer: | Anna Yurova                                    |
 | Study:                              | EMBA (study acronym)                           |
-| Date:                               | <INSERT DATE>                                  |
 | License:                            | GNU General Public License v3.0                |
 
 
