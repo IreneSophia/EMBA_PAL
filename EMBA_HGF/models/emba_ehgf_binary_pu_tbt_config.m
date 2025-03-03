@@ -1,4 +1,4 @@
-function c = EMBA_ehgf_binary_pu_tbt_2level_config
+function c = emba_ehgf_binary_pu_tbt_config
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
 % Contains the configuration for the *enhanced* Hierarchical Gaussian Filter (HGF) for binary inputs in the
@@ -117,7 +117,7 @@ function c = EMBA_ehgf_binary_pu_tbt_2level_config
 c = struct;
 
 % Model name
-c.model = 'EMBA_ehgf_binary_pu_tbt_2level';
+c.model = 'ehgf_binary_pu_tbt';
 
 % Number of levels (minimum: 3)
 c.n_levels = 3;
@@ -156,15 +156,14 @@ c.rhosa = [NaN, 0, 0];
 % Higher log(kappas) should be fixed (preferably to log(1)) if the
 % observation model does not use mu_i+1 (kappa then determines the
 % scaling of x_i+1).
-c.logkamu = [log(1),      -Inf]; % Anna: setting the second k to -inf so that log(k_2) is zero
+c.logkamu = [log(1), log(1)];
 c.logkasa = [     0,      0];
 
 % Omegas
 % Format: row vector of length n_levels.
 % Undefined (therefore NaN) at the first level.
 c.ommu = [NaN,  -5,  -6];
-% Anna: setting the variance to zero to keep the third parameter fixed.
-c.omsa = [NaN, 4^2, 0];
+c.omsa = [NaN, 4^2, 4^2];
 
 % Eta0
 % Format: scalar.
@@ -205,10 +204,10 @@ if length([c.priormus, c.priorsas]) ~= 2*expectedLength;
 end
 
 % Model function handle
-c.prc_fun = @EMBA_ehgf_binary_pu_tbt_2level;
+c.prc_fun = @emba_ehgf_binary_pu_tbt;
 
 % Handle to function that transforms perceptual parameters to their native space
 % from the space they are estimated in
-c.transp_prc_fun = @EMBA_ehgf_binary_pu_tbt_2level_transp;
+c.transp_prc_fun = @emba_ehgf_binary_pu_tbt_transp;
 
 return;

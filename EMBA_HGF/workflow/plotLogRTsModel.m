@@ -1,4 +1,4 @@
-function [] = plotLogRTsModel(modSpace, subDir, saveDir, nSubs)
+function [] = plotLogRTsModel(modSpace, subDir, saveDir, nSubs, midx)
 % Plot logRT fits: 'logRT_model'
 % Based on hessetal_spirl_analysis/job_runner_plot_results.m, lines
 % 311-405
@@ -12,6 +12,10 @@ function [] = plotLogRTsModel(modSpace, subDir, saveDir, nSubs)
 %   subDir              char array          subdirectory containing results
 %
 %   saveDir             char array          base output directory
+%
+%   nSubs               double              no of subs to plot, 0 for all
+%
+%   midx                double vector       model indices, [] for all
 %-----------------------------------------------------------------------------
 %
 % Copyright (C) 2024 Anna Yurova, Irene Sophia Plank, LMU University Hospital;
@@ -24,7 +28,11 @@ function [] = plotLogRTsModel(modSpace, subDir, saveDir, nSubs)
 
 nModels = size(modSpace, 2);
 
-if strcmp(subDir, 'pilots')
+if isempty(midx)
+    midx = 1:nModels;
+end
+
+if strcmp(subDir, 'pilots') || strcmp(subDir, 'main')
     load(fullfile(saveDir, subDir, 'full_results'), 'res');
 elseif strcmp(subDir, 'sim')
     load(fullfile(saveDir, subDir, 'recovery_analysis'), 'est');
@@ -40,12 +48,6 @@ nTrials = numel(res.est(1,1).y);
 if nSubs == 0
     nSubs   = size(res.est, 2);
 end
-input   = res.est(end).u(:,1);
-input(input == 1) = 8.2;
-input(input == 0) = 4.8;
-
-lim_upper = 8.5;
-lim_lower = 4.5;
  
 
 %% PILOT: plot rt trajectories & fits (single-sub)
@@ -54,7 +56,7 @@ nr_width  = 1;
 nr_height = 4;
 nr_total  = nr_width*nr_height;
 nr_plots  = ceil(nSubs/nr_total);
-for m = 1:nModels
+for m = midx
     for p = 1:nr_plots
         figure
         set(gcf, 'Units', 'Normalized', 'OuterPosition', [0 0 1 1]);
@@ -64,6 +66,13 @@ for m = 1:nModels
                 continue
             end
             subplot(nr_height,nr_width,i)
+            % figure out subject-specific ylims
+            lim_lower = floor((min(res.est(m,sub).y)-0.2)*2)/2;
+            lim_upper = ceil((max(res.est(m,sub).y)+0.2)*2)/2;
+            % adjust input to them
+            input   = res.est(m,sub).u(:,1);
+            input(input == 1) = lim_upper - 0.2;
+            input(input == 0) = lim_lower + 0.2;
             % plot the volatile phase
             fill([73 264 264 73], [lim_lower lim_lower lim_upper lim_upper], ...
                      'b', 'EdgeAlpha', 0, 'FaceAlpha', 0.15);
@@ -71,7 +80,6 @@ for m = 1:nModels
             % plot the prevolatile phase
             fill([1 73 73 1], [lim_lower lim_lower lim_upper lim_upper], ...
                      'r', 'EdgeAlpha', 0, 'FaceAlpha', 0.15);
-            
             % plot the prevolatile phase
             fill([264 nTrials nTrials 264], [lim_lower lim_lower lim_upper lim_upper], ...
                      'r', 'EdgeAlpha', 0, 'FaceAlpha', 0.15);
@@ -88,7 +96,7 @@ for m = 1:nModels
             title(txt, 'FontSize', 20)
         end
         legend('', '', '', '$log(y_{rt})$', '$log(\hat{y}_{rt})$', 'Interpreter','latex', 'Position', [0.94 0.48 0.03 0.07], 'FontSize', 20)
-        figdir = fullfile(saveDir, 'figures', subDir); 
+        figdir = fullfile(saveDir, 'figures', [subDir '_logRTs']); 
         if ~exist(figdir, 'dir')
             mkdir(figdir)
         end

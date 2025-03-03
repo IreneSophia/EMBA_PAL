@@ -81,7 +81,7 @@ function c = emba_hgf_binary_pu_tbt_config
 % Tips:
 % - When analyzing a new dataset, take your inputs u and use
 %
-%   >> est = tapas_fitModel([], u, 'tapas_hgf_binary_pu_tbt_config', 'tapas_bayes_optimal_binary_config');
+%   >> est = tapas_fitModel([], u, 'emba_hgf_binary_pu_tbt_config', 'tapas_bayes_optimal_binary_config');
 %
 %   to determine the Bayes optimal perceptual parameters (given your current priors as defined in
 %   this file here, so choose them wide and loose to let the inputs influence the result). You can

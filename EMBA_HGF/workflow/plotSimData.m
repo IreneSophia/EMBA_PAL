@@ -43,20 +43,19 @@ x_max = 30;
 x = x_min:0.1:x_max;
  
 %% FIG: prior pred densities under empirical priors, log(yhat_rt) (M1)
-
+% create figure
+figure
+set(gcf, 'Units', 'Normalized', 'OuterPosition', [0, 0.04, 1, 1]);
 % collect simulated logRTs
 for m=1:nMod
     logRT_sim = NaN(nTrials,nSim);
     for n = 1:nSim
         logRT_sim(:,n) = sim.sub(n,m).data.y;
     end
-    % ignore infinite values when computing the mean
+    % ignore infinite values when computing the median
     logRT_sim(isinf(logRT_sim)) = nan;
-    avg_logRT_sim = mean(logRT_sim, 2, 'omitnan');
-    
-    % create figure
-    figure
-    set(gcf, 'Units', 'Normalized', 'OuterPosition', [0, 0.04, 1, 0.5]);
+    avg_logRT_sim = median(logRT_sim, 2, 'omitnan');
+    subplot(4,2,m)
     plot(logRT_sim, 'color', [0 0 1 0.1])
     hold on
     % Time window is HARDCODED HERE!
@@ -71,17 +70,14 @@ for m=1:nMod
     title(strcat(modSpace(m).name, ' pilot simulation results'));
     hold off
 
-    figdir = fullfile(saveDir, 'figures', 'sim_priorpred', ...
-        [char(strcat('empirical_prior_pred_dens_log_yhat_rt_', strtrim(modSpace(m).name)))]);
-    if ~exist(fullfile(saveDir, 'figures', 'sim_priorpred'), 'dir')
-       mkdir(fullfile(saveDir, 'figures', 'sim_priorpred'))
-    end
-    print(figdir, '-dpng');
-    print(figdir, '-dsvg');
-    close;
-
 end
 
-
+figdir = fullfile(saveDir, 'figures', 'sim_data');
+if ~exist(figdir, 'dir')
+   mkdir(figdir)
+end
+print(fullfile(figdir, 'logRTs'), '-dpng');
+print(fullfile(figdir, 'logRTs'), '-dsvg');
+close;
 
 end

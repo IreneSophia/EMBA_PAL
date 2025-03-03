@@ -1,4 +1,4 @@
-function [] = compareModels(modSpaceRobMean, saveDir)
+function [out] = compareModels(modSpaceRobMean, saveDir)
 % Model comparison based on the models run on the real data
 % Based on hessetal_spirl_analysis/job_runner_12_main_results.m
 %
@@ -56,6 +56,7 @@ end
 options.modelNames = txt;
 options.verbose    = false;
 [res.indiv.posterior, res.indiv.out] = VBA_groupBMC(res.LME', options);
+out = res.indiv.out;
 
 % save the plot
 print([saveDir filesep 'figures' filesep 'main' filesep 'model_comparison'], '-dpng');

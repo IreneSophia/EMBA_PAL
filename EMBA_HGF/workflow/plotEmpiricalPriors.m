@@ -1,4 +1,4 @@
-function [] = plotEmpiricalPriors(modSpace, saveDir)
+function [] = plotEmpiricalPriors(modSpace, subDir, saveDir, midx)
 % Plot empirical priors
 % Based on hessetal_spirl_analysis/job_runner_paper_figs.m, lines
 % 404 - 579 -> produces figure 5A in their paper
@@ -8,7 +8,11 @@ function [] = plotEmpiricalPriors(modSpace, saveDir)
 % INPUT
 %   modSpace            struct              model space
 %
+%   subDir              char array          subfolder containing estimates
+%
 %   saveDir             char array          base output directory
+%
+%   midx                double vector       model indices, [] for all
 %-----------------------------------------------------------------------------
 %
 % Copyright (C) 2024 Anna Yurova, Irene Sophia Plank, LMU University Hospital;
@@ -18,12 +22,17 @@ function [] = plotEmpiricalPriors(modSpace, saveDir)
 % This file is part of the EMBA_HGF toolbox, which is released under the terms of the GNU General Public
 % Licence (GPL), version 3. For further details, see the file LICENSE or <http://www.gnu.org/licenses/>.
 %-----------------------------------------------------------------------------
-empiricalPriors = load(fullfile(saveDir, 'pilots', 'pilot_priors'));
+
+empiricalPriors = load(fullfile(saveDir, subDir, 'params_priors'));
 model = empiricalPriors.mod;
+
+if isempty(midx)
+    midx = 1:size(modSpace, 2);
+end
 
 %% FIG: empirical prior distributions
 
-figpath = fullfile(saveDir, 'figures', 'priors');
+figpath = fullfile(saveDir, 'figures', subDir);
 if ~exist(figpath, 'dir')
     mkdir(figpath);
 end
@@ -33,7 +42,11 @@ x_min = -50;
 x_max = 50;
 x = x_min:0.001:x_max;
 
-for m = 1:size(modSpace, 2)
+for m = midx
+
+    % reset the values
+    prc = [];
+    obs = [];
 
     % get pdf of prc model params
     for j = 1:size(modSpace(m).prc_idx,2)
@@ -57,15 +70,21 @@ for m = 1:size(modSpace, 2)
     %% PERCEPTION MODEL
     
     % plot om2
-    subplot(3,3,1)
+    count = 1;
+    subplot(3,3,count)
     j = 1;
     plot(x, prc(j).y, 'k', 'LineWidth', 1)
     hold on
     plot(x, prc(j).y_prior, 'k--')
-    % add pilot participants
-    plot(model(m).prc_est(:,j), -0.05, 'k.')
+    % add participant data
+    scatter(model(m).prc_est(:,j), zeros(length(model(m).prc_est(:,j)),1), ...
+        20, 'o','MarkerEdgeColor','b','MarkerEdgeAlpha', 0.5, 'LineWidth', 1)
     hold off
-    %ylim([-0.1 0.25])
+    % figure out y limits
+    upp = round(max([prc(j).y prc(j).y_prior])*1.05, 2);
+    low = 0 - upp*0.05;
+    ylim([low upp])
+    % set x limits
     xlim([-15 5])
     t = '$\omega_2$';
     title(t, 'interpreter','latex', 'FontSize', 20);
@@ -76,133 +95,68 @@ for m = 1:size(modSpace, 2)
     
     % plot om3
     if modSpace(m).prc_config.n_levels > 2
-        subplot(3,3,2);
+        count = count + 1;
+        subplot(3,3,count);
         j = 2;
         plot(x, prc(j).y, 'k', 'LineWidth', 1)
         hold on
         plot(x, prc(j).y_prior, 'k--')
-        plot(model(m).prc_est(:,j), -0.05, 'k.')
+        % add participant data
+        scatter(model(m).prc_est(:,j), zeros(length(model(m).prc_est(:,j)),1), ...
+            20, 'o','MarkerEdgeColor','b','MarkerEdgeAlpha', 0.5, 'LineWidth', 1)
         hold off
-        %ylim([-0.1 0.25])
+        % figure out y limits
+        upp = round(max([prc(j).y prc(j).y_prior])*1.05, 2);
+        low = 0 - upp*0.05;
+        ylim([low upp])
+        % set x limits
         xlim([-15 5])
         t = '$\omega_3$';
         title(t, 'interpreter','latex', 'FontSize', 20);
     end
 
-    % plot alpha
-    if length(modSpace(m).prc_idx) > 2
-        subplot(3,3,3);
-        j = 3;
-        plot(x, prc(j).y, 'k', 'LineWidth', 1)
-        hold on
-        plot(x, prc(j).y_prior, 'k--')
-        plot(model(m).prc_est(:,j), -0.05, 'k.')
-        hold off
-        %ylim([-0.1 0.25])
-        xlim([-4 2])
-        t = '$log(\alpha)$';
-        title(t, 'interpreter','latex', 'FontSize', 20);
-
-    end
-
     %% RESPONSE MODEL
-    
-    % plot beta0 (intercept)
-    subplot(3,3,4)
-    k = 1;
-    plot(x, obs(k).y, 'k', 'LineWidth', 1)
-    hold on
-    plot(x, obs(k).y_prior, 'k--')
-    plot(model(m).obs_est(:,k), -0.05, 'k.')
-    hold off
-    %ylim([-0.1 2])
-    xlim([log(500)-2 log(500)+2])
-    t = '$\beta_0$';
-    title(t, 'interpreter','latex', 'FontSize', 20);
-    
-    % plot beta1 (Shannon surprise)
-    subplot(3,3,5)
-    k = 2;
-    plot(x, obs(k).y, 'k', 'LineWidth', 1)
-    hold on
-    plot(x, obs(k).y_prior, 'k--')
-    plot(model(m).obs_est(:,k), -0.05, 'k.')
-    hold off
-    %ylim([-0.1 16])
-    xlim([-0.25 0.25])
-    t = '$\beta_{surprise}$';
-    title(t, 'interpreter','latex', 'FontSize', 20);
 
-    if length(modSpace(m).obs_config.priormus) == 6
+    for k = 1:(length(obs)-1)
+        count = count + 1;
     
-        % plot beta2 
-        subplot(3,3,6)
-        k = 3;
-        plot(x, obs(k).y, 'k', 'LineWidth', 1)
+        % plot betas
+        subplot(3,3,count)
+        idx = find(round(obs(k).y, 3) > 0);
+        yvalue = obs(k).y(idx);
+        xvalue = x(idx);
+        pvalue = obs(k).y_prior(idx);
+        plot(xvalue, yvalue, 'k', 'LineWidth', 1)
         hold on
-        plot(x, obs(k).y_prior, 'k--')
-        plot(model(m).obs_est(:,k), -0.05, 'k.')
+        plot(xvalue, pvalue, 'k--')
+        % add participant data
+        scatter(model(m).obs_est(:,k), zeros(length(model(m).obs_est(:,k)),1), ...
+            20, 'o','MarkerEdgeColor','b','MarkerEdgeAlpha', 0.5, 'LineWidth', 1)
         hold off
-        %ylim([-0.1 0.4])
-        xlim([-6 6])
-        t = '$\beta_{unc1}$';
+        % figure out y limits
+        upp = round(max([obs(k).y obs(k).y_prior])*1.05, 2);
+        low = 0 - upp*0.05;
+        ylim([low upp])
+        t = sprintf('$\\beta_%d$', k-1);
         title(t, 'interpreter','latex', 'FontSize', 20);
-        
-        % plot beta3 
-        subplot(3,3,7)
-        k = 4;
-        plot(x, obs(k).y, 'k', 'LineWidth', 1)
-        hold on
-        plot(x, obs(k).y_prior, 'k--')
-        plot(model(m).obs_est(:,k), -0.05, 'k.')
-        hold off
-        %ylim([-0.1 0.3])
-        xlim([-8 8])
-        t = '$\beta_{unc2}$';
-        title(t, 'interpreter','latex', 'FontSize', 20);
-        k = 5;
-
-    else
-
-        % plot beta pwPE 
-        subplot(3,3,6)
-        k = 3;
-        plot(x, obs(k).y, 'k', 'LineWidth', 1)
-        hold on
-        plot(x, obs(k).y_prior, 'k--')
-        plot(model(m).obs_est(:,k), -0.05, 'k.')
-        hold off
-        %ylim([-0.1 0.4])
-        xlim([-6 6])
-        t = '$\beta_{pwPE}$';
-        title(t, 'interpreter','latex', 'FontSize', 20);
-        k = 4;
 
     end
-
-    % plot phasic volatility 
-    subplot(3,3,8)
-    plot(x, obs(k).y, 'k', 'LineWidth', 1)
-    hold on
-    plot(x, obs(k).y_prior, 'k--')
-    plot(model(m).obs_est(:,k), -0.05, 'k.')
-    hold off
-    %ylim([-0.1 0.7])
-    xlim([-4 4])
-    t = '$\beta_{volatility}$';
-    title(t, 'interpreter','latex', 'FontSize', 20);
     
-    % plot Sigma
-    subplot(3,3,9)
-    % Set index depending on the number of parameters in the corresponding
-    % model
-    k = length(model(m).obs_robmean);
-    plot(x, obs(k).y, 'k', 'LineWidth', 1)
+    % Plot Sigma (which is always the last parameter)
+    count = count + 1;
+    subplot(3,3,count)
+    plot(x, obs(end).y, 'k', 'LineWidth', 1)
     hold on
-    plot(x, obs(k).y_prior, 'k--')
-    plot(model(m).obs_est(:,k), -0.05, 'k.')
+    plot(x, obs(end).y_prior, 'k--')
+    % add participant data
+    scatter(model(m).obs_est(:,end), zeros(length(model(m).obs_est(:,end)),1), ...
+        20, 'o','MarkerEdgeColor','b','MarkerEdgeAlpha', 0.5, 'LineWidth', 1)
     hold off
-    %ylim([-0.1 2])
+    % figure out y limits
+    upp = round(max([obs(k).y obs(k).y_prior])*1.05, 2);
+    low = 0 - upp*0.05;
+    ylim([low upp])
+    % set x limits
     xlim([-5 4])
     t = '$log(\Sigma)$';
     title(t, 'interpreter','latex', 'FontSize', 20);

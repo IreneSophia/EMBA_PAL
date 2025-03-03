@@ -1,4 +1,4 @@
-function [] = plotTrajForMain(modSpace, parallel, local_cores, saveDir)
+function [] = plotTrajForMain(modSpace, m, parallel, local_cores, saveDir)
 % 'binary_model' plots (or trajectory plots) for all simulated subjects
 % Based on hessetal_spirl_analysis/job_runner_plot_results.m, lines
 % 919-926
@@ -39,19 +39,22 @@ else
     maxNumWorkers = 0;
 end
 
-nModels = size(res.est,1);
-
 parfor (sub=1:size(res.est,2), maxNumWorkers)
-    for m = 1:nModels
-        emba_ehgf_binary_pu_tbt_plotTraj(res.est(m,sub), plotsd)
-        figdir = fullfile(saveDir, 'figures', 'main_traj');
-        if ~exist(figdir, 'dir')
-            mkdir(figdir)
-        end
-        print(strcat(figdir, filesep, 'traj', '_sub-', num2str(res.est(m,sub).subID), '_', modSpace(m).name), '-dpng');
-        print(strcat(figdir, filesep, 'traj', '_sub-', num2str(res.est(m,sub).subID), '_', modSpace(m).name), '-dsvg');
-        close;
+    emba_ehgf_binary_pu_tbt_plotTraj(res.est(m,sub), plotsd)
+    hold on
+    annotation('textbox', [0.48 0.88 0.8 0.1], ...
+        'String', sprintf('LME: %.3f', res.est(m,sub).optim.LME), ...
+        'Color', [1 0.5 0], ...
+        'FontWeight', 'bold', ...
+        'EdgeColor', 'none')
+    hold off
+    figdir = fullfile(saveDir, 'figures', 'main_traj');
+    if ~exist(figdir, 'dir')
+        mkdir(figdir)
     end
+    print(strcat(figdir, filesep, 'traj', '_sub-', num2str(res.est(m,sub).subID), '_', modSpace(m).name), '-dpng');
+    print(strcat(figdir, filesep, 'traj', '_sub-', num2str(res.est(m,sub).subID), '_', modSpace(m).name), '-dsvg');
+    close;
 end
 
 % shuting down cores

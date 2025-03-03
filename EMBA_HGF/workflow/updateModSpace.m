@@ -17,7 +17,7 @@ function [modSpaceRobMean] = updateModSpace(modSpace, saveDir)
 %-----------------------------------------------------------------------------
 
 % Load empirical priors
-empiricalPriors = load(fullfile(saveDir, 'pilots', ['pilot_priors']));
+empiricalPriors = load(fullfile(saveDir, 'pilots', ['params_priors']));
 model = empiricalPriors.mod;
 
 % Initialize model space with the old one
@@ -49,5 +49,6 @@ for m = 1:size(modSpace, 2)
     % content of the vectors c.priormus and c.priorsas
     modSpaceRobMean(m).obs_config = tapas_align_priors_fields(...
         modSpaceRobMean(m).obs_config);
+    
 end
 end

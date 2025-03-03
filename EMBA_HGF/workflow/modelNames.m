@@ -25,12 +25,15 @@ function [obsNamesDisp, prcNamesDisp, obsNamesList, prcNamesList] = modelNames()
 % List the display names of the observation models.
 % It is best to keep them short, as these strings will be appended to
 % output file names, also better not to use spaces or special characters
-obsNamesDisp = ["logrt"];
+obsNamesDisp = ["A", "B", "C", "AB", "BC", "AC", "ABC"];
 
 % List the names of observation models
 % It is necessary to use DOUBLE QUOTATION MARKS "..."!
 % Make sure it is the same number as the number of the display names!
- obsNamesList = ["tapas_logrt_linear_binary"];
+ obsNamesList = [...
+     "emba_logrt_linear_binary_A", "emba_logrt_linear_binary_B", "emba_logrt_linear_binary_C",...
+     "tapas_logrt_linear_binary", "emba_logrt_linear_binary_BC", ...
+     "emba_logrt_linear_binary_AC", "emba_logrt_linear_binary_ABC"];
 if (numel(obsNamesDisp) ~= numel(obsNamesList))
     error('The number of model names does not match the number of config names. Check your input!')
 end
@@ -38,7 +41,7 @@ end
 % Perception model name
 % The workflow assumes that the perception model is the same for all
 % observation models > this model needs to be in the tapas HGF folder
-prcNamesList = ["tapas_ehgf_binary_pu_tbt", "emba_hgf_binary_pu_tbt"]; %;
+prcNamesList = ["emba_ehgf_binary_pu_tbt", "emba_hgf_binary_pu_tbt"]; %;
 
 % List the display names of the perception models.
 % It is best to keep them short, as these strings will be appended to

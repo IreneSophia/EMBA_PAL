@@ -85,33 +85,18 @@ end
 
 %% Find free parameters
 % Note that it relies on the fact, that in the perception model, the
-% variance for all parameters, but omegas, are set to zero!
+% variance for all parameters, but omegas, are set to zero or NaN!
 
 % Loop through the models
 for i = 1:size(ModelSpace,2)
 
     % Perception model
-
-    % Get the vector prior variances of the perception model
-    prc_idx = ModelSpace(i).prc_config.priorsas;
-
-    % Set the values that are NaN to zero
-    prc_idx(isnan(prc_idx)) = 0;
-
-    % Find the non-zero indexes, which correspond to the free parameters
-    ModelSpace(i).prc_idx = find(prc_idx);
-
+    ModelSpace(i).prc_idx = find(~isnan(ModelSpace(i).prc_config.priorsas) & ...
+        ModelSpace(i).prc_config.priorsas ~= 0);
 
     % Observation model
-
-    % Get the vector prior variances of the observation model
-    obs_idx = ModelSpace(i).obs_config.priorsas;
-
-    % Set the values that are NaN to zero
-    obs_idx(isnan(obs_idx)) = 0;
-
-    % Find the non-zero indexes, which correspond to the free parameters
-    ModelSpace(i).obs_idx = find(obs_idx);
+    ModelSpace(i).obs_idx = find(~isnan(ModelSpace(i).obs_config.priorsas) & ...
+        ModelSpace(i).obs_config.priorsas ~= 0);
 
 end
 

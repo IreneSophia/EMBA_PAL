@@ -129,8 +129,8 @@ for m = 1:size(modSpace, 2)
                 plot(simData(n).traj.muhat(:,j), 'Color', [0 0 1 0.2])
             end
         end
-        % plot the mean muhat
-        plot(mean(x, 2), 'Color', 'black', 'LineWidth', 3)
+        % plot the median muhat
+        plot(median(x, 2), 'Color', 'black', 'LineWidth', 3)
         xlabel('trials', 'FontSize', 20)
         ytxt = ['$\hat{\mu}_{', num2str(j), '}$'];
         ylabel(ytxt, 'Interpreter', 'Latex', 'FontSize', 20)
@@ -170,8 +170,8 @@ for m = 1:size(modSpace, 2)
                 plot(simData(n).traj.sahat(:,k), 'Color', [0 0 1 0.2])
             end
         end
-        % plot the mean sigmas
-        plot(mean(x, 2), 'Color', 'black', 'LineWidth', 3)
+        % plot the median sigmas
+        plot(median(x, 2), 'Color', 'black', 'LineWidth', 3)
         xlabel('trials')
         ytxt = ['$\hat{\sigma}_{', num2str(k), '}$'];
         ylabel(ytxt, 'Interpreter', 'Latex', 'FontSize', 20)

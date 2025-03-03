@@ -1,4 +1,4 @@
-*Version 1.2*
+*Version 1.0*
 
 EMBA analysis pipeline: Bayesian workflow for HGF modelling (EMBA_HGF)
 ========================================================================
@@ -7,12 +7,15 @@ EMBA analysis pipeline: Bayesian workflow for HGF modelling (EMBA_HGF)
 Contributors 
 ------------
 
-|                                     |                                                |
-| ----------------------------------- | ---------------------------------------------- |
-| Project lead, developer:            | Irene Sophia Plank                             |
-| Computational scientist, developer: | Anna Yurova                                    |
-| Study:                              | EMBA (study acronym)                           |
-| License:                            | GNU General Public License v3.0                |
+|                                     |                                             |
+| ----------------------------------- | ------------------------------------------- |
+| Project lead, developer:            | Irene Sophia Plank                          |
+| Computational scientist, developer: | Anna Yurova                                 |
+| NEVIA lab leader:                   | Christine M. Falter-Wagner                  |
+| Project members:                    | Alexandra Pior, Julia Nowak                 |
+| Study:                              | EMBA (study acronym)                        |
+| Date:                               | <INSERT DATE>                               |
+| License:                            | GNU General Public License v3.0             |
 
 
 -----------
@@ -48,12 +51,10 @@ https://github.com/IreneSophia/EMBA_PAL
 Download and extract the following toolboxes into the main folder:
 - [tapas](https://github.com/translationalneuromodeling/tapas/releases/tag/v6.0.2)
 - [VBA-toolbox](https://mbb-team.github.io/VBA-toolbox/)
-- [RainCloudPlots](https://github.com/RainCloudPlots/RainCloudPlots)
 
-This should result in three new folders in the main directory: 
+This should result in two new folders in the main directory: 
 - tapas-master
 - VBA-toolbox-master
-- RainCloudPlots-master
 
 --------
 GET DATA
