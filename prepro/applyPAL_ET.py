@@ -10,11 +10,10 @@ import os
 import simple_colors
 from datamatrix import io, DataMatrix, MultiDimensionalColumn, convert
 import time_series_test_ISP as tst
-import numpy as np
+#import numpy as np
 import pandas as pd
 from preprocessPAL_ET import PAL_pupilpreprocess
-from matplotlib import pyplot as plt
-from datamatrix import operations as ops
+#from datamatrix import operations as ops
 
 ####### INITIALISE STUFF
 
@@ -113,66 +112,43 @@ io.writepickle(dm_sum, path_out + 'PAL-ET_sum.pkl')
 df = convert.to_pandas(dm_sum)
 df.to_csv(path_out + 'PAL-ET_sum.csv')
 
-####### DO SOME PLOTTING
-
-# plot difference between expected and unexpected trials
-def plot_series(x, s, color, label):
-
-    se = s.std / np.sqrt(len(s))
-    plt.fill_between(x, s.mean-se, s.mean+se, color=color, alpha=.25)
-    plt.plot(x, s.mean, color=color, label=label)
-
-x = np.linspace(-bsms, trlms, len(dm[0].bsc_pupil))
-dm_ex, dm_un = ops.split(dm_sum.exp, "expected", "unexpected")
-
-plt.figure()
-plot_series(x, dm_ex.bsc_pupil, color='green', label='expected (N=%d)' % len(dm_ex))
-plot_series(x, dm_un.bsc_pupil, color='blue', label='unexpected (N=%d)' % len(dm_un))
-plt.axvline(0, linestyle=':', color='black')
-plt.ylabel('Pupil size')
-plt.xlabel('Time relative to onset of the face (ms)')
-plt.legend(frameon=False, title='')
-plt.show()
-
-# average number of artefact samples per condition
-data = [dm_ex.artft, dm_un.artft]
-fig = plt.figure(figsize =(10, 7))
-ax = fig.add_axes([0, 0, 1, 1])
-ax.set_xticklabels(['expected', 'unexpected'])
-bp = ax.boxplot(data)
-plt.show()
-
-# average number of missing after correction per condition
-data = [dm_ex.miss, dm_un.miss]
-fig = plt.figure(figsize =(10, 7))
-ax = fig.add_axes([0, 0, 1, 1])
-ax.set_xticklabels(['expected', 'unexpected'])
-bp = ax.boxplot(data)
-plt.show()
-
-####### USE CROSS-VALIDATION TO DETERMINE THE DATA FOR THE LMM
+####### USE CROSS-VALIDATION TO DETERMINE THE DATA FOR THE LMMs
 
 # get rid of the neutral trials and trials without a response
 dm_subset = dm.exp == {"expected", "unexpected"}
 dm_subset = dm_subset.rts > 0
 
-# get rid of the baseline (200ms = 20 samples)
-dm_subset.rel_pupil = dm_subset.bsc_pupil[:, 20:]
+# get rid of the baseline (200ms = 20 samples) and the pupil reflex to the faces
+sr  = 100
+ign = int((bsms+800)/(1000/sr))
+dm_subset.rel_pupil = dm_subset.bsc_pupil[:, ign:]
+
+# rename to expected
+dm_subset.expected = dm_subset.exp
 
 # only keep relevant columns
-del dm_subset.artft, dm_subset.baseline, dm_subset.ds_pupil, dm_subset.bsc_pupil
-del dm_subset.key, dm_subset.miss, dm_subset.pupil, dm_subset.z_baseline
+del dm_subset.artft, dm_subset.baseline, dm_subset.ds_pupil, dm_subset.trl, dm_subset.bsc_pupil
+del dm_subset.key, dm_subset.miss, dm_subset.pupil, dm_subset.z_baseline, dm_subset.exp
 dm_subset.column_names
 
-# run the cross validation which saves the relevant csv in the data folder
-results = tst.lmer_crossvalidation_test(dm_subset, 
-                                        formula='rel_pupil ~ diagnosis * exp + rts', 
-                                        groups = 'subID', winlen=1, 
-                                        con_formula = 'rel_pupil ~ C(diagnosis, Sum) * C(exp, Sum) + rts',
-                                        out = path_data + 'CV_pupilsize'
+results = tst.lmer_crossvalidation_test(dm_subset, split=6,
+                                        formula='rel_pupil ~ expected + rts', 
+                                        groups='subID', winlen=10, 
+                                        con_formula='rel_pupil ~ C(expected, Sum) + rts',
+                                        out=path_data + 'CV_pup_sum'
                                         )
 
 print(results)
+
+tst.save(results, path_data + 'CV_pup_sum/results.pkl')
+
+# plot the results with the included function
+
+results = tst.load(path_data + 'CV_pup_sum/results.pkl')
+
+tst.plot(dm_subset, dv='rel_pupil', hue_factor='expected', 
+         sampling_freq=100, results=results, x0 = ign/sr)
+
 
 ####### USE LMS TO DETERMINE THE BETAS FOR EACH PARTICIPANT PER TIMEPOINT
 
