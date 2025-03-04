@@ -14,6 +14,7 @@ import warnings
 import logging
 import re
 import os
+import pickle #[!ISP]
 #import random
 from datetime import datetime
 from collections import namedtuple
@@ -505,3 +506,32 @@ def _colors(colormap, n):
 
 # alias for backwards compatibility
 find = lmer_crossvalidation_test
+
+# [!ISP]: saving results as pickle > needs to be converted to dictionary first
+def save(results, path):
+    res_dict = dict()
+    for effect in results:
+        res_dict[effect] = results[effect]._asdict()
+      
+    # open a file and save as pickle
+    with open(path, 'wb') as file: 
+        # A new file will be created 
+        pickle.dump(res_dict, file) 
+
+# [!ISP]: loading results again
+def load(path):
+    # load the pickle again
+    with open(path, 'rb') as file: 
+        res_dict = pickle.load(file) 
+        
+    # restructure as namedtuple
+    Results = namedtuple('LmerTestLocalizerResults', 
+                         ['model', 'samples', 'p', 'z'])
+
+    results = {}
+    for effect in res_dict:
+        results[effect] = Results(model=res_dict[effect]['model'], 
+                                  samples=res_dict[effect]['samples'],
+                                  p=0, 
+                                  z=0) 
+    return results
