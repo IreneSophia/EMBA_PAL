@@ -1,17 +1,16 @@
 % Main running file of the EMBA_HGF toolbox
 % Before running the script
-%     - navigate to the directory where the "EMBA_PAL_main" script is located
+%     - navigate to the directory where the "EMBA_HGF_main" script is located
 %     - specify the models in the getModelNames file
 % 
-% CAUTION : some of the plotting is hardcoded to the EMBA models
+% CAUTION : some of the plotting is hardcoded for the EMBA models
 
 %-----------------------------------------------------------------------------
 % 
 % Copyright (C) 2024 Anna Yurova, Irene Sophia Plank, LMU University Hospital; 
 %               based on the hessetal_spirl_analysis toolbox by Alex Hess (2024), TNU, ETHZ
 %
-% Please cite <INSERT REFERENCE>, Hess et. al. (2024) from
-% CITATION.txt when using the EMBA_HGF Toolbox.
+% Please cite the papers from CITATION.txt when using the EMBA_HGF Toolbox.
 %
 % This file is part of the EMBA_HGF toolbox, which is released under the terms of the GNU General Public
 % Licence (GPL), version 3. For further details, see the file
@@ -22,8 +21,28 @@ close all
 clear
 clc
 
-dir_PAL = pwd;
-dir_HGF = [dir_PAL filesep 'EMBA_HGF'];
+%% Specify the necessary parameters
+
+% Current directory to be able to return to it after toolbox installation
+dir_PAL  = pwd;                          
+
+% Path to the EMBA_HGF toolbox
+dir_HGF  = [dir_PAL filesep 'EMBA_HGF']; 
+
+% Path to all the data files
+dir_data = [dir_PAL filesep 'data'];     
+
+% The directory, where the results will be saved.
+saveDir = [pwd filesep 'HGF_results'];
+
+% Number of simulations (number of simulated subjects)
+nSim = 100; 
+
+% Number of local cores for parallelisation
+local_cores = 32;
+
+% Switch for parallelisation: 1 for parallel, 0 for the serial version
+parallel = 1;
 
 %% Setup the toolboxes
 
@@ -34,48 +53,28 @@ cd([dir_HGF filesep 'VBA-toolbox-master']);
 VBA_setup();
 cd(dir_PAL)
 
-addpath([dir_HGF filesep 'RainCloudPlots-master/tutorial_matlab/']);
-
 %% Add the relevant subfolders to the path
 
 addpath(dir_HGF);
-addpath([dir_HGF filesep 'data']);
+addpath(dir_data);
 addpath([dir_HGF filesep 'models']);
 addpath([dir_HGF filesep 'workflow']);
-
-%% Specify the necessary parameters
-
-% Pilot data set 
-pilot = load("PAL_Prop_pilot.mat");
-
-% The directory, where the results will be saved.
-saveDir = [pwd filesep 'HGF_results'];
-
-% Number of simulations (number of simulated subjects)
-nSim = 100; 
-
-%% Parallel toolbox setup
-
-% Number of local cores
-local_cores = 32;
-
-% Switch for parallelization: 1 for parallel version, 0 for the serial
-% version
-parallel = 1;
 
 %% Pipeline setup
 
 % Get the observation and perception model names
 [obsNamesDisp, prcNamesDisp, obsNamesList, prcNamesList] = modelNames();
 
+% Pilot data set 
+pilot = load("PAL_Prop_pilot.mat");
+
 % Number of participants
 nPilots = numel(pilot.data);
 
 %% Model space setup
-modSpace = setupModelSpace(obsNamesDisp, prcNamesDisp, obsNamesList, prcNamesList);
 
-% Number of models
-nModels = size(modSpace, 2);
+% Create a structure with the model space
+modSpace = setupModelSpace(obsNamesDisp, prcNamesDisp, obsNamesList, prcNamesList, true);
 
 % Plot initial priors for the models [!HARDCODED!]
 plotInitialPriorsPredDens(modSpace, pilot.data(end).u, saveDir)
@@ -88,19 +87,44 @@ plotInitialPriorsPredDens(modSpace, pilot.data(end).u, saveDir)
 
 fitPilotData(modSpace, nPilots, pilot, parallel, local_cores, saveDir)
 
-% Plot regressors [!HARDCODED!] [! NEEDS ADJUSTING !]
+% Accumulate the results. Necessary for some of the plotting. 
+accumulateForPlotting('pilots', modSpace, saveDir)
+
+%% Quick posterior predictive checks for the pilots
+
+% Plot predicted differences between difficulty & expectedness [!HARDCODED!]
+plotAggLogRTsModel(modSpace, 'pilots', saveDir, false, true)
+
+% We only keep models that actually capture two things: the difference
+% between difficult, medium and easy trials as well as the difference
+% between expected and unexpected trials. This applies to all models with
+% the response model including the precision-weighted prediction error on
+% level 3, coded as C. Therefore, we continue with those models. 
+idx = contains(obsNamesDisp, "C");
+obsNamesDisp = obsNamesDisp(idx);
+obsNamesList = obsNamesList(idx);
+
+% Create a structure with the updated model space
+modSpace = setupModelSpace(obsNamesDisp, prcNamesDisp, obsNamesList, prcNamesList, true);
+
+% Re-accumulate the results. Necessary for some of the plotting. 
+accumulateForPlotting('pilots', modSpace, saveDir)
+
+%% Continue with models passing posterior predictive check
+
+% Plot regressors [!HARDCODED!]
 plotAverageRegressors(modSpace, 'pilots', pilot.data, saveDir);
 
-% Plot RTs with yhats
-plotLogRTsModel(modSpace, 'pilots', saveDir); 
+% Plot RTs with yhats [!HARDCODED!]
+plotLogRTsModel(modSpace, 'pilots', saveDir, 0, []); 
 
 %% Empirical priors computation
 
 % Compute and save the priors
-computeEmpiricalPriors(modSpace, nPilots, saveDir);
+computeEmpiricalPriors(modSpace, nPilots, 'pilots', saveDir);
 
 % Plot empirical priors [!HARDCODED!]
-plotEmpiricalPriors(modSpace, saveDir);
+plotEmpiricalPriors(modSpace, 'pilots', saveDir);
 
 % Update the model space to use empirical priors
 modSpaceRobMean = updateModSpace(modSpace, saveDir);
@@ -112,7 +136,10 @@ modSpaceRobMean = updateModSpace(modSpace, saveDir);
 verbose = false;
 maxRep  = 10;
 simModels(modSpaceRobMean, nSim, pilot.data(end).u, saveDir, verbose, maxRep);
-plotSimData(modSpaceRobMean, nSim, saveDir);
+plotSimData(modSpaceRobMean, nSim, saveDir); %[!HARDCODED!]
+
+% Some of the models produce suboptimal simulated data. We still continue
+% with all of them to have a better idea of their performance. 
 
 %% Fit all models to simulated data
 % The results are saved in .mat files. This line can be commented out once
@@ -122,35 +149,63 @@ plotSimData(modSpaceRobMean, nSim, saveDir);
 fitSimData(modSpaceRobMean, nSim, parallel, local_cores,  saveDir);
 
 %% Recovery analysis (parameter recovery + model identifyability)
+
 checkParameterRecovery(modSpaceRobMean, nSim, saveDir);
-plotParameterRecovery(modSpaceRobMean, saveDir); % [!parameter names are HARDCODED!]
+plotParameterRecovery(modSpaceRobMean, saveDir); % [!HARDCODED!]
 
 checkModelIdentifiability(nSim, modSpaceRobMean, saveDir); %
 plotModelIdentifiability(modSpaceRobMean, saveDir);
 
 %% Plot the simulations
 
-% Plot RTs of the simulations
+% Plot RTs of the simulations [!HARDCODED!]
 plotSimRec(modSpace, nSim, saveDir); 
+plotLogRTsModel(modSpace, 'sim', saveDir, 8, []);
 
-% Plot trajectories based on all of the simulations
-plotTrajForAllSim(modSpace, nSim, saveDir);   % [! NEEDS ADJUSTING !]
-
-%% Fit the preregistered model on the ACTUAL DATA
-
-% Reduce model space to preregistered model
-modSpaceWin = modSpaceRobMean(1);
+%% Fit the models on the ACTUAL DATA
 
 % Load the participant data
 load('PAL_data.mat', 'data');
 
-% Fit the winning model to the participant data
-fitData(modSpaceWin, data, parallel, local_cores, saveDir)
+% We fit all the models that passed the initial posterior predictive checks
+% based on the pilot data. Additionally, we will add the model that was
+% used by Lawson et al. (2017) with the priors that they used. 
+[lawModel, modSpace] = addLawModelSpace(modSpace);
+[~, modSpaceRobMean] = addLawModelSpace(modSpaceRobMean);
+
+% Fit the models to the participant data
+fitData(modSpaceRobMean, data, parallel, local_cores, saveDir)
+
+% Accumulate the results. Necessary for some of the plotting. 
+accumulateForPlotting('main', modSpace, saveDir)
+
+%% Compare models 
+
+% Similar to model identifiability > saves the figures
+out = compareModels(modSpaceRobMean, saveDir); %
+winModel = find(max(out.Ef));
+fprintf('\n\nThe winning model is %s!\n\n', out.options.modelNames{winModel})
+
+% This shows that the best model for the actual data is the eHGF-C which 
+% also did not show any red flags for the simulated data. 
 
 %% Perform posterior predictive checks
 
+% Plot trajectoris for single participants for winning model [!HARDCODED!]
+plotTrajForMain(modSpace, winModel, parallel, local_cores, saveDir);  
+
+% Plot simulated data in comparison to real subject data for winning model
+plotLogRTsModel(modSpace, 'main', saveDir, 0, winModel);
+
+% Plot predicted differences between difficulty & expectedness [!HARDCODED!]
+plotAggLogRTsModel(modSpace, 'main', saveDir, false, true)
+
+% Plot empirical priors with parameters extracted from data [!HARDCODED!]
+computeEmpiricalPriors(modSpace(1:end-1), length(data), 'main', saveDir);
+plotEmpiricalPriors(modSpace, 'main', saveDir, winModel);
 
 %% Extract the model parameters for further analysis
 
-% Extract the relevant parameter and save them to a csv file
-extractHGFcsv(modSpaceWin, saveDir)
+% We extract the parameters from the winning model to test our hypotheses
+% and from the Lawson model for comparison
+extractHGFcsv(modSpaceRobMean, saveDir, [winModel lawModel])
