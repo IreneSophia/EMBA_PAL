@@ -1,4 +1,4 @@
-*Version 1.0*
+*Version 2.0*
 
 EMBA analysis pipeline: Bayesian workflow for HGF modelling (EMBA_HGF)
 ========================================================================
@@ -12,7 +12,7 @@ Contributors
 | Project lead, developer:            | Irene Sophia Plank                          |
 | Computational scientist, developer: | Anna Yurova                                 |
 | NEVIA lab leader:                   | Christine M. Falter-Wagner                  |
-| Project members:                    | Alexandra Pior, Julia Nowak                 |
+| Project members:                    | Alexandra Pior, Julia Nowak, Zhuanghua Shi  |
 | Study:                              | EMBA (study acronym)                        |
 | Date:                               | <INSERT DATE>                               |
 | License:                            | GNU General Public License v3.0             |

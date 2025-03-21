@@ -51,17 +51,17 @@ for p = 1:nrPlots
             yhat_mat(:,n) = res.rec.est(m,n,m).data.optim.yhat;
         end
         
-        mean_logRT_sim = mean(y_sim_mat, 2, 'omitnan');
+        med_logRT_sim = median(y_sim_mat, 2, 'omitnan');
         var_logRT_sim = var(y_sim_mat, 0, 2, 'omitnan');
-        logupper_sim = mean_logRT_sim + sqrt(var_logRT_sim);
-        loglower_sim = mean_logRT_sim - sqrt(var_logRT_sim);
+        logupper_sim = med_logRT_sim + sqrt(var_logRT_sim);
+        loglower_sim = med_logRT_sim - sqrt(var_logRT_sim);
         mean_yhat = mean(yhat_mat, 2, 'omitnan');
         var_yhat = var(yhat_mat, 0, 2, 'omitnan');
         upper_yhat = mean_yhat + sqrt(var_yhat);
         lower_yhat = mean_yhat - sqrt(var_yhat);
         
         subplot(2,2,k)
-        plot(trials, mean_logRT_sim, 'LineWidth', 2, 'color', 'b'); %, 'color', options.col.tnub)
+        plot(trials, med_logRT_sim, 'LineWidth', 2, 'color', 'b'); %, 'color', options.col.tnub)
         hold on
         fill([trials, fliplr(trials)], [(logupper_sim)', fliplr((loglower_sim)')], ...
                  'b', 'EdgeAlpha', 0, 'FaceAlpha', 0.15);
