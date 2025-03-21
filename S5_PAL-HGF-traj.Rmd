@@ -1,0 +1,166 @@
+---
+title: "S5: exploration of the belief trajectories"
+author: "I. S. Plank"
+date: "`r Sys.Date()`"
+output: html_document
+---
+  
+```{r settings, include=FALSE}
+
+knitr::opts_chunk$set(echo = T, warning = F, message = F, fig.align = 'center', fig.width = 9)
+ls.packages = c("knitr",# kable
+    "ggplot2",          # plots
+    "brms",             # Bayesian lmms
+    "designr",          # simLMM
+    "bridgesampling",   # bridge_sampler
+    "tidyverse",        # tibble stuff
+    "ggpubr",           # ggarrange
+    "ggrain",           # geom_rain
+    "bayesplot",        # plots for posterior predictive checks
+    "SBC",              # plots for checking computational faithfulness
+    "rstatix",          # anova
+    "BayesFactor", 
+    "effectsize",
+    "bayestestR"        # equivalence_test
+)
+
+lapply(ls.packages, library, character.only=TRUE)
+
+# set cores
+options(mc.cores = parallel::detectCores())
+
+# set options for SBC
+use_cmdstanr = getOption("SBC.vignettes_cmdstanr", TRUE) # Set to false to use rstan instead
+options(brms.backend = "cmdstanr")
+
+# using parallel processing
+library(future)
+plan(multisession)
+
+# graph settings 
+c_light = "#a9afb2"; c_light_highlight = "#8ea5b2"; c_mid = "#6b98b2" 
+c_mid_highlight = "#3585b2"; c_dark = "#0072b2"; c_dark_highlight = "#0058b2" 
+c_green = "#009E73"
+sz = 1
+a = 0.5
+
+# custom colour palette
+custom.col = c("#009E73", "#D55E00", c_dark_highlight, "#CC79A7")
+
+
+path.dir = "HGF_results/main"
+path.dir = ""
+
+```
+
+<style type="text/css">
+  .main-container {
+    max-width: 1100px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+</style>
+  
+# S4.1 Introduction
+  
+This R Markdown script analyses data from the PAL (probabilistic associative learning) task of the EMBA project. HGF parameters were extrated based on the subject-specific reaction times beforehand in MATLAB. 
+
+## Package versions
+
+The following packages are used in this RMarkdown file: 
+  
+```{r lib_versions, echo=F}
+
+print(R.Version()$version.string)
+
+for (package in ls.packages) {
+  print(sprintf("%s version %s", package, packageVersion(package)))
+}
+
+```
+
+## Preparation
+
+First, we load the parameters from the winning model.
+
+```{r prep, fig.height=4}
+
+# get belief state trajectories
+df.trj = read_csv(file.path(path.dir, "eHGF-C_traj.csv")) %>%
+  rename(
+    "da1: prediction error stimulus" = "da1",
+    "da2: prediction error cue-outcome" = "da2",
+    "da3: prediction error environment" = "da3",
+    "mu1: belief state stimulus" = "mu1",
+    "mu2: belief state cue-outcome" = "mu2",
+    "mu3: belief state environment" = "mu3",
+    "muhat1: prediction belief state stimulus" = "muhat1",
+    "muhat2: prediction belief state cue-outcome" = "muhat2",
+    "muhat3: prediction belief state environment" = "muhat3",
+    "alpha1: learning rate stimulus" = "alpha1",
+    "alpha2: learning rate cue-outcome" = "alpha2",
+    "alpha3: learning rate environment" = "alpha3"
+  ) %>%
+  select(contains(": ") | c(subID, diagnosis, trl))
+
+
+# get belief state trajectories and calculate median + standard deviation excluding outliers
+df.exc = df.trj %>%
+  filter(subID != 36 & subID != 73) %>%
+  select(-subID) %>%
+  group_by(diagnosis, trl) %>%
+  summarise_all(list(median = median, sd = sd)) %>%
+  # add in the scheme and adjust it based on the max?
+  pivot_longer(cols = !c(diagnosis, trl), names_to = "parameter") %>%
+  separate(parameter, into = c("parameter", "stat"), sep = "_") %>%
+  pivot_wider(names_from = stat, values_from = value) %>%
+  mutate(
+    lo = median - sd,
+    up = median + sd
+  )
+
+```
+
+# All participants
+
+## Groups in one plot
+
+```{r win_cont, fig.height=60}
+
+# code the phases
+df.trj %>%
+  pivot_longer(cols = contains(": ")) %>%
+  ggplot(., aes(x = trl, y = value, colour = diagnosis, group = subID)) +
+  geom_line(alpha = 0.1) +
+  stat_summary(aes(group = diagnosis, colour = diagnosis), 
+               fun.y = median, geom = "line", size = 0.75, alpha = 0.8) +
+  geom_vline(xintercept = c(72, 264), colour = "black") + 
+  facet_wrap(. ~ name, nrow = 12, scales = "free") +
+  labs(title = "Belief states across task", x = "trials", y = "") +
+  scale_fill_manual(values = c(custom.col)) +
+  scale_color_manual(values = custom.col) +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5), 
+        legend.direction = "horizontal", text = element_text(size = 15))
+
+```
+
+# Excluding outliers: median with standard deviation
+
+```{r out_cont, fig.height=60}
+
+# code the phases
+ggplot(df.exc, aes(x = trl, y = median, ymin = lo, ymax = up, 
+                   colour = diagnosis, fill = diagnosis)) +
+  geom_ribbon(alpha = 0.1) +
+  geom_line(size = 1, alpha = 0.6) +
+  geom_vline(xintercept = c(72, 264), colour = "black") + 
+  facet_wrap(. ~ parameter, nrow = 12, scales = "free") +
+  labs(title = "Belief states across task", x = "trials", y = "") +
+  scale_fill_manual(values = c(custom.col)) +
+  scale_color_manual(values = custom.col) +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5), 
+        legend.direction = "horizontal", text = element_text(size = 15))
+
+```

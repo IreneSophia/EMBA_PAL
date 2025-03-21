@@ -2,10 +2,8 @@
 /_brms_SBC_cache/dat_*.rds
 /_brms_sens_cache/*.rds
 /_brms_models/*_bf.rds
-/HGF_results*
 /EMBA_HGF/tapas*
 /EMBA_HGF/RainCloud*
 /EMBA_HGF/VBA*
-/EMBA_HGF/models_old/*
 /compare*
 /prepro/__pycache__

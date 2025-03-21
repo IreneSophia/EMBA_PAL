@@ -19,7 +19,7 @@ from time import time
 #from matplotlib import lines
 
 # make a function out of this that is then looped over participants
-def PAL_pupilpreprocess(et_file, beh_file, out, data, log=False,
+def PAL_pupilpreprocess(et_file, beh_file, out, df_trl, log=False,
                         plotting=True, margin=10, lp_filter=None,
                         sr=500, bcms=200, trlms=1800):
     
@@ -43,10 +43,6 @@ def PAL_pupilpreprocess(et_file, beh_file, out, data, log=False,
         
         # log starting time
         t = time()
-        
-        # load the additional trial information
-        df_trl = pd.read_csv(data + '/PAL_scheme.csv', 
-                             usecols=['trl', 'expected'])
         
         # load the behavioural data
         df_beh = pd.read_csv(beh_file)

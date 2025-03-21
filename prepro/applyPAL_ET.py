@@ -10,6 +10,7 @@ import os
 import simple_colors
 from datamatrix import io, DataMatrix, MultiDimensionalColumn, convert
 import time_series_test_ISP as tst
+import statsmodels.formula.api as smf
 #import numpy as np
 import pandas as pd
 from preprocessPAL_ET import PAL_pupilpreprocess
@@ -21,6 +22,10 @@ from preprocessPAL_ET import PAL_pupilpreprocess
 path_ins  = ['/home/emba/Documents/EMBA/BVET/', '/home/emba/Documents/EMBA/BVET-explo/']
 path_out  = '/home/emba/Documents/EMBA/PAL-ET_preprocessed/'
 path_data = '/home/emba/Documents/EMBA/EMBA_PAL_scripts/data/'
+
+# load the dataframe with the trial information
+df_trl = pd.read_csv(path_data + '/PAL_scheme.csv', 
+                     usecols=['trl', 'expected', 'emo', 'difficulty'])
 
 # timing parameters
 bsms  = 200  # baseline in ms
@@ -44,7 +49,7 @@ for path_in in path_ins:
         if len(beh_file) > 0:
             try: 
                 dm_sub = PAL_pupilpreprocess(et_file, beh_file[0], 
-                                             path_out, path_data,
+                                             path_out, df_trl,
                                              log=True, lp_filter=4) # Kret: 4 Hz
                 # if preprocessing was stopped, None is returned
                 if not(dm_sub is None):
@@ -152,6 +157,81 @@ tst.plot(dm_subset, dv='rel_pupil', hue_factor='expected',
 
 ####### USE LMS TO DETERMINE THE BETAS FOR EACH PARTICIPANT PER TIMEPOINT
 
-# [!ISP]: MISSING
+# load the relevant data
+dm = io.readpickle(path_out + 'PAL-ET.pkl')
+df_trj = pd.read_csv('/home/emba/Documents/EMBA/EMBA_PAL_scripts/HGF_results/main/eHGF-C_traj.csv')
 
+# merge HGF trial output with trial information
+df_trl = pd.merge(df_trj, df_trl, how="left")
 
+# get rid of unnecessary columns and rows
+del dm.artft, dm.baseline, dm.ds_pupil, dm.key, dm.miss, dm.pupil, dm.z_baseline
+dm = dm.exp == {"expected", "unexpected"}
+dm = dm.rts > 0
+
+# set the formula
+lm_form = 'rel_pupil ~ C(exp, Sum) + eps2 + eps3 + mu3 + C(emo, Sum) + C(difficulty, Sum) + rts'
+
+# trial duration
+dur = dm.bsc_pupil.shape[1]
+
+# initialise the datamatrix
+subIDs = list(set(dm.subID))
+dm_lms = DataMatrix(length=len(subIDs))
+dm_lms.subID   = subIDs
+dm_lms.b_Int   = MultiDimensionalColumn(shape=(dur,)) 
+dm_lms.b_exp   = MultiDimensionalColumn(shape=(dur,)) 
+dm_lms.b_emo   = MultiDimensionalColumn(shape=(dur,)) 
+dm_lms.b_diff1 = MultiDimensionalColumn(shape=(dur,)) 
+dm_lms.b_diff2 = MultiDimensionalColumn(shape=(dur,)) 
+dm_lms.b_eps2  = MultiDimensionalColumn(shape=(dur,)) 
+dm_lms.b_eps3  = MultiDimensionalColumn(shape=(dur,)) 
+dm_lms.b_mu3   = MultiDimensionalColumn(shape=(dur,)) 
+dm_lms.b_rts   = MultiDimensionalColumn(shape=(dur,)) 
+group = []
+i = 0
+
+# loop through the participants
+for subID in subIDs:
+    
+    # track progress
+    print('Subject {} of {}'.format(i, dm_lms.shape[0]))
+
+    # extract this subjects data and initialise lists
+    dm_subset = dm.subID == subID
+    params    = []
+    group.append(dm_subset[0].diagnosis)
+    
+    # loop through the time bins
+    for t in range(dur):
+        dm_subset.rel_pupil = dm_subset.bsc_pupil[:, t]
+        
+        # convert to dataframe and merge
+        df_sub = convert.to_pandas(dm_subset)
+        df_sub = pd.merge(df_sub, df_trl, how="left")
+        
+        # run the linear model
+        lm = smf.ols(formula=lm_form,
+                     data=df_sub).fit()
+        
+        # log all the data
+        params.append(lm.params)
+    
+    # add this subject betas to the datamatrix
+    params = pd.DataFrame(params)
+    dm_lms[i].b_Int   = params['Intercept']
+    dm_lms[i].b_exp   = params['C(exp, Sum)[S.expected]'] 
+    dm_lms[i].b_emo   = params['C(emo, Sum)[S.negative]']
+    dm_lms[i].b_diff1 = params['C(difficulty, Sum)[S.difficult]']
+    dm_lms[i].b_diff2 = params['C(difficulty, Sum)[S.easy]']
+    dm_lms[i].b_eps2  = params['eps2']
+    dm_lms[i].b_eps3  = params['eps3']
+    dm_lms[i].b_mu3   = params['mu3']
+    dm_lms[i].b_rts   = params['rts']
+    
+    i = i + 1
+    
+dm_lms.diagnosis = group
+
+# save all the lm data
+io.writepickle(dm_lms, path_out + 'PAL-ET_lm-betas.pkl')
