@@ -1,0 +1,2 @@
+fixed effects: rel_pupil ~ C(expected, Sum) + rts
+random intercepts: subID
