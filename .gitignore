@@ -2,6 +2,10 @@
 /_brms_SBC_cache/dat_*.rds
 /_brms_sens_cache/*.rds
 /_brms_models/*_bf.rds
+/_brms_models/*_full.rds      # too large, need to find a way
+/_brms_models/*_noDiff.rds    # too large, need to find a way
+/_brms_models/m_pal.rds       # too large, need to find a way
+/_brms_models/m_pal_rtuse.rds # too large, need to find a way
 /EMBA_HGF/tapas*
 /EMBA_HGF/RainCloud*
 /EMBA_HGF/VBA*
