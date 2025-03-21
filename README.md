@@ -8,4 +8,4 @@ In this repository, we will focus on the probabilistic associative learning (PAL
 
 Participants also perform three additional paradigms: a dot-probe task to measure face attention bias (FAB), a probabilistic learning paradigm (PAL) and a visual mismatch task (VMM). The preregistrations for this project are on [OSF](https://osf.io/znrht). The preregistrations will be made public when manuscripts are submitted. 
 
-This repository is a work in progress. The script are continuously augmented.
+This repository is a work in progress. The scripts are continuously augmented.
