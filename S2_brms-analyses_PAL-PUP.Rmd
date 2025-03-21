@@ -531,8 +531,6 @@ for (pr.desc in pr.descriptions) {
   )
 }
 
-installr::os.shutdown(m = 15)
-
 df.pal.bf = read_csv(file.path(sense_dir,
                                sprintf("df_%s_bf.csv", main.code)),
                      show_col_types = F)
