@@ -67,3 +67,12 @@ diagnosis + expected + diagnosis:expected,4.5726,sdx0.25
 diagnosis + expected + rts + diagnosis:expected,396.1851,sdx0.25
 1,0.0000,sdx0.125
 diagnosis * expected + rts,400.2114,sdx0.125
+diagnosis,0.2457,sdx0.125
+expected,7.0723,sdx0.125
+rts,401.2692,sdx0.125
+diagnosis + expected,7.3356,sdx0.125
+diagnosis + rts,401.1848,sdx0.125
+expected + rts,401.9611,sdx0.125
+diagnosis + expected + rts,401.9025,sdx0.125
+diagnosis + expected + diagnosis:expected,6.1485,sdx0.125
+diagnosis + expected + rts + diagnosis:expected,400.2003,sdx0.125
