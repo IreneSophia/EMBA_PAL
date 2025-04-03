@@ -35,10 +35,6 @@ We also share the models and the results of the simulation-based calibration. **
 * `plots` : some of the plots created for the manuscript
 * `prepro` : scripts to preprocess the pupil sizes, the behavioural responses and the demographic as well as questionnaire information collected with CentraXX
 
-The `prepro` folder contains scripts used during preprocessing. All scripts contain information in the header regarding their use. 
-
-The `prepro` folder contains scripts used during preprocessing. All scripts contain information in the header regarding their use. 
-
 ### Versions and installation
 
 Each pdf file contains an output of the versions used to run that particular script. It is important to install all packages mentioned in the file before running a specific analysis file. Not all packages can be installed with `install.packages`, please consult the respective installation pages of the packages for more information. If the models are rerun, ensure a valid cmdstanr installation. 
