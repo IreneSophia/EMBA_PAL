@@ -22,6 +22,14 @@ These scripts may use scripts from the `helpers` folder. There are some absolute
 
 We also share the models and the results of the simulation-based calibration. **Rerunning these, especially the SBC, can take days depending on the specific model.** Runtime of the scripts using the models and SBC shared in this repository should only take a few minutes. The scripts will create all relevant output that was used in the manuscript. If you need access to other data associated with this project or want to use the stimuli / paradigm, please contact the project lead (Irene Sophia Plank, 10planki@gmail.com). 
 
+### Versions and installation
+
+Each pdf file contains an output of the versions used to run that particular script. It is important to install all packages mentioned in the file before running a specific analysis file. Not all packages can be installed with `install.packages`, please consult the respective installation pages of the packages for more information. If the models are rerun, ensure a valid cmdstanr installation. 
+
+To render the RMarkdown file as a PDF, an installation of pdflatex is mandatory. 
+
+In this project, we used Python 3, MATLAB R2023a and R 4.4.3. 
+
 ## Folder content
 
 * `_brms_models` : rds files of the final brms models and the ANOVA to be read into R
@@ -34,14 +42,6 @@ We also share the models and the results of the simulation-based calibration. **
 * `HGF_results` : results of the Bayesian workflow for HGF
 * `plots` : some of the plots created for the manuscript
 * `prepro` : scripts to preprocess the pupil sizes, the behavioural responses and the demographic as well as questionnaire information collected with CentraXX
-
-### Versions and installation
-
-Each pdf file contains an output of the versions used to run that particular script. It is important to install all packages mentioned in the file before running a specific analysis file. Not all packages can be installed with `install.packages`, please consult the respective installation pages of the packages for more information. If the models are rerun, ensure a valid cmdstanr installation. 
-
-To render the RMarkdown file as a PDF, an installation of pdflatex is mandatory. 
-
-In this project, we used Python 3, MATLAB R2023a and R 4.4.3. 
 
 ## Project members
 
