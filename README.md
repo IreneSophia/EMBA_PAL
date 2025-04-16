@@ -6,7 +6,7 @@ Mutual social interactions require people to be aware of the affective state of 
 
 In this repository, we will focus on the probabilistic associative learning (PAL) paradigm. This paradigm was adapted from Lawson et al. (2017, 2021). Contrary to the original task, the participant here is presented with facial expressions associated with fear and happiness and their task is to judge as fast and accurately as possible whether the facial expression is associated with a positively or negatively valenced emotion. Before each face, a high or low tone is played, which can be predictive for the outcome of the following decision. Lawson and colleagues have shown that adults with autism show increased updates of learning rates on the level of the environmental volatility while showing decreased updates of learning rates on the level of the probabilistic outcomes.
 
-Participants also perform three additional paradigms: a dot-probe task to measure face attention bias (FAB), a probabilistic learning paradigm (PAL) and a visual mismatch task (VMM). The preregistrations for this project are on [OSF](https://osf.io/znrht). The preregistrations will be made public when manuscripts or preprints are submitted. 
+Participants also perform three additional paradigms: a dot-probe task to measure face attention bias (FAB), a probabilistic learning paradigm (PAL) and a visual mismatch task (VMM). The preregistrations for this project are on OSF. The preregistrations will be made public when manuscripts or preprints are submitted. 
 
 This repository is a work in progress. The scripts are continuously augmented.
 
