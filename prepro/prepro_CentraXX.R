@@ -54,18 +54,21 @@ df.asrs = df %>% filter(questionnaire == "PSY_NEVIA_ASRS") %>%
 
 # PSY_NEVIA_BDI 
 # (10 bis 19: leichtes depressives Syndrom, 20 bis 29: mittelgradiges, >= 30: schweres)
-df.bdi = df %>% filter(questionnaire == "PSY_NEVIA_BDI")  %>%
+df.bdi = df %>% filter(questionnaire == "PSY_NEVIA_BDI" & item != "PSY_BOKI_BDI_V")  %>%
   ungroup() %>%
   mutate(
     numericValue = case_when(
-      "NEIN" == value ~ 0,
-      "Ja"   == value ~ 1,
       # if there are multiple answers chosen, select the highest value
       grepl(", ", numericValue, fixed = T) ~ max(readr::parse_number(str_split(numericValue, ", ")[[1]])),
       # if not, just convert it to a number
       T ~ as.numeric(numericValue)
-      )
-    ) %>%
+    ),
+    # fix a mistake in CentraXX which codes one item wrong
+    numericValue = case_when(
+      item == "PSY_BOKI_BDI_F" & numericValue > 2 ~ numericValue - 1,
+      T ~ numericValue
+    )
+  ) %>%
   select(questionnaire, PID, item, numericValue) %>%
   group_by(PID) %>%
   summarise(

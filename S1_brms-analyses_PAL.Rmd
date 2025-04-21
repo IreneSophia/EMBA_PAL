@@ -19,7 +19,6 @@ ls.packages = c("knitr",# kable
     "bayesplot",        # plots for posterior predictive checks
     "SBC",              # plots for checking computational faithfulness
     "rstatix",          # anova
-    "R.matlab",         # writeMat to save data as .mat file
     "effectsize",       # interpret_bf
     "BayesFactor", 
     "bayestestR"        # equivalence_test
