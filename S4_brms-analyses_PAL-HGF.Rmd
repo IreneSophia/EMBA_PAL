@@ -58,7 +58,8 @@ sz = 1
 a = 0.5
 
 # custom colour palette
-custom.col = c("#009E73", "#D55E00", c_dark_highlight, "#CC79A7")
+custom.col4 = c("#FFC107", "#004D40", "#1E88E5", "#D81B60")
+custom.col2 = c("#5D3A9B", "#E66100")
 
 ```
 
@@ -162,7 +163,7 @@ aov.lme@bayesFactor
 There is `r interpret_bf(aov.lme@bayesFactor$bf, log = T)` a difference in LME between diagnostic groups. This suggests that the HGF model fit comparably well to the subjects of the different groups. Therefore, we move on to analyse its parameters. 
 
 For this specific model, the following observation model was used: 
-$$\log{RT} = \beta_0 + \beta_1 \times surprise_{Shannon} + \beta_2 \times pwPE + \beta_3 \times volatility_{phasic}$$
+$$\log{RT} = \beta_0 + \beta_1 \times surprise_{stimulus} + \beta_2 \times pwPE + \beta_3 \times volatility_{phasic}$$
 This model was created based on the model used in Lawson et al. (2021); however, in our case, it was used with the enhanced HGF as the perception model. Next, we use sum contrast coding for all of our categorical predictors.
 
 ```{r contrasts}
@@ -470,6 +471,9 @@ h3a = hypothesis(m.vol, "0 < diagnosis1 + 2*diagnosis2 + diagnosis3")
 h3a
 
 ```
+
+
+*estimate* = `r round(h3a$hypothesis$Estimate,2)` [`r round(h3a$hypothesis$CI.Lower,2)`, `r round(h2a$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h3a$hypothesis$Post.Prob*100,2)`%
 
 ## Bayes factor
 
@@ -847,6 +851,9 @@ h3b
 
 ```
 
+
+*estimate* = `r round(h3b$hypothesis$Estimate,2)` [`r round(h3b$hypothesis$CI.Lower,2)`, `r round(h3b$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h3b$hypothesis$Post.Prob*100,2)`%
+
 ## Bayes factor
 
 
@@ -1209,8 +1216,10 @@ h3c
 
 ```
 
-## Bayes factor
+*estimate* = `r round(h3c$hypothesis$Estimate,2)` [`r round(h3c$hypothesis$CI.Lower,2)`, `r round(h3c$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h3c$hypothesis$Post.Prob*100,2)`%
 
+
+## Bayes factor
 
 
 ```{r bf_om2, fig.height=4}
@@ -1303,24 +1312,33 @@ kable(df.pal.bf %>%
 
 ```{r plot_hgf, fig.height=8}
 
-# rain cloud plot
-
 df.hgf %>%
   select(subID, diagnosis, be0, be1, be2, be3, ze, om2, om3) %>% #
   pivot_longer(cols = c(be0, be1, be2, be3, ze, om2, om3), 
                names_to = "parameter") %>%
   mutate(
-    parameter = case_match(parameter,
+    group = case_when(
+      diagnosis == "BOTH" ~ "ADHD+ASD",
+      T ~ diagnosis
+    ),
+    parameter = factor(case_match(parameter,
                            "be0" ~ "predicted log RT",
-                           "be1" ~ "Shannon surprise",
-                           "be2" ~ "precision-weighted contingency PE",
+                           "be1" ~ "stimulus surprise",
+                           "be2" ~ "precision-weighted PE",
                            "be3" ~ "phasic volatility",
                            "ze"  ~ "Sigma (decision noise)",
                            "om2" ~ "2nd tonic volatility",
                            "om3" ~ "3rd tonic volatility"
-                           )
+                           ), levels = c("2nd tonic volatility", 
+                                         "3rd tonic volatility", 
+                                         "predicted log RT", 
+                                         "stimulus surprise", 
+                                         "precision-weighted PE", 
+                                         "phasic volatility", 
+                                         "Sigma (decision noise)"))
   ) %>%
-  ggplot(aes(x = 1, y = value, fill = diagnosis, colour = diagnosis)) + #
+  filter(parameter != "predicted log RT") %>%
+  ggplot(aes(x = 1, y = value, fill = group, colour = group)) + #
   geom_rain(rain.side = 'r',
 boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
 violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
@@ -1336,9 +1354,15 @@ point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.
   facet_wrap(. ~ parameter, scales = "free", ncol = 3) +
   labs(title = "HGF parameter", x = "", y = "") +
   theme_bw() + 
-  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5), 
+  theme(legend.position = "bottom", plot.title = element_blank(), 
         text = element_text(size = 13), axis.text.x=element_blank(), 
-        axis.ticks.x=element_blank(), legend.direction = "horizontal")
+        axis.ticks.x=element_blank(), legend.direction = "horizontal",
+        legend.title = element_blank())
+
+
+
+ggsave("plots/FigHGF.svg", units = "cm", width = 27, height = 13.5)
+
 
 ```
 
@@ -1694,6 +1718,14 @@ h4c.3
 
 ```
 
+h4a ASD alpha3: *estimate* = `r round(h4a$hypothesis$Estimate,2)` [`r round(h4a$hypothesis$CI.Lower,2)`, `r round(h4a$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h4a$hypothesis$Post.Prob*100,2)`%
+
+h4b ASD alpha2: *estimate* = `r round(h4b$hypothesis$Estimate,2)` [`r round(h4b$hypothesis$CI.Lower,2)`, `r round(h4b$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h4b$hypothesis$Post.Prob*100,2)`%
+
+h4c.2 ADHD alpha3: *estimate* = `r round(h4c.2$hypothesis$Estimate,2)` [`r round(h4c.2$hypothesis$CI.Lower,2)`, `r round(h4c.2$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h4c.2$hypothesis$Post.Prob*100,2)`%
+
+h4c.3.3 ADHD alpha3: *estimate* = `r round(h4c.3$hypothesis$Estimate,2)` [`r round(h4c.3$hypothesis$CI.Lower,2)`, `r round(h4c.3$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h4c.3$hypothesis$Post.Prob*100,2)`%
+
 ## Bayes factor
 
 ```{r bf_alpha, fig.height=6}
@@ -1863,7 +1895,7 @@ aov.lme@bayesFactor
 There is `r interpret_bf(aov.lme@bayesFactor$bf, log = T)` a difference in LME between diagnostic groups. This suggests that the HGF model fit comparably well to the subjects of the different groups. Therefore, we move on to analyse its parameters. 
 
 For this specific model, the following observation model was used: 
-$$\log{RT} = \beta_0 + \beta_1 \times surprise_{Shannon} + \beta_2 \times uncertainty_{outcome} + \beta_3 \times uncertainty_{probability} + \beta_4 \times volatility_{phasic}$$
+$$\log{RT} = \beta_0 + \beta_1 \times surprise_{stimulus} + \beta_2 \times uncertainty_{stimulus} + \beta_3 \times uncertainty_{cue-outcome} + \beta_4 \times volatility_{phasic}$$
 This model is deployed in the TAPAS toolbox and, to our knowledge, was used in Lawson et al. (2021) with the HGF (not eHGF) as the perception model. 
 
 ```{r contrasts_Law}
@@ -2157,23 +2189,36 @@ hypothesis(m.om2, "0 < 2*diagnosis1 + diagnosis2 + diagnosis3", alpha = 0.025)
 
 # rain cloud plot
 
+
 df.hgf %>%
   select(subID, diagnosis, be0, be1, be2, be3, be4, ze, om2, om3) %>% #
   pivot_longer(cols = c(be0, be1, be2, be3, be4, ze, om2, om3), 
                names_to = "parameter") %>%
   mutate(
-    parameter = case_match(parameter,
+    group = case_when(
+      diagnosis == "BOTH" ~ "ADHD+ASD",
+      T ~ diagnosis
+    ),
+    parameter = factor(case_match(parameter,
                            "be0" ~ "predicted log RT",
-                           "be1" ~ "Shannon surprise",
-                           "be2" ~ "outcome uncertainty",
-                           "be3" ~ "probability uncertainty",
+                           "be1" ~ "stimulus surprise",
+                           "be2" ~ "stimulus uncertainty",
+                           "be3" ~ "cue-outcome uncertainty",
                            "be4" ~ "phasic volatility",
                            "ze"  ~ "Sigma (decision noise)",
                            "om2" ~ "2nd tonic volatility",
                            "om3" ~ "3rd tonic volatility"
-                           )
+                           ), levels = c("2nd tonic volatility", 
+                                         "3rd tonic volatility", 
+                                         "predicted log RT", 
+                                         "stimulus surprise", 
+                                         "stimulus uncertainty", 
+                                         "cue-outcome uncertainty", 
+                                         "phasic volatility", 
+                                         "Sigma (decision noise)"))
   ) %>%
-  ggplot(aes(x = 1, y = value, fill = diagnosis, colour = diagnosis)) + #
+  filter(parameter != "predicted log RT") %>%
+  ggplot(aes(x = 1, y = value, fill = group, colour = group)) + #
   geom_rain(rain.side = 'r',
 boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
 violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
@@ -2189,9 +2234,10 @@ point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.
   facet_wrap(. ~ parameter, scales = "free", ncol = 3) +
   labs(title = "HGF parameter", x = "", y = "") +
   theme_bw() + 
-  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5), 
-        text = element_text(size = 15), axis.text.x=element_blank(), 
-        axis.ticks.x=element_blank(), legend.direction = "horizontal")
+  theme(legend.position = "bottom", plot.title = element_blank(), 
+        text = element_text(size = 13), axis.text.x=element_blank(), 
+        axis.ticks.x=element_blank(), legend.direction = "horizontal",
+        legend.title = element_blank())
 
 ```
 

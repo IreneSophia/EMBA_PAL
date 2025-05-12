@@ -19,7 +19,7 @@ ls.packages = c("knitr",# kable
     "bayesplot",        # plots for posterior predictive checks
     "SBC",              # plots for checking computational faithfulness
     "rstatix",          # anova
-    "R.matlab",         # writeMat to save data as .mat file
+    #"R.matlab",         # writeMat to save data as .mat file
     "effectsize",       # interpret_bf
     "BayesFactor", 
     "bayestestR"        # equivalence_test
@@ -59,7 +59,8 @@ sz = 1
 a = 0.5
 
 # custom colour palette
-custom.col = c("#009E73", "#D55E00", c_dark_highlight, "#CC79A7")
+custom.col4 = c("#FFC107", "#004D40", "#1E88E5", "#D81B60")
+custom.col2 = c("#5D3A9B", "#E66100")
 
 ```
 
@@ -481,7 +482,7 @@ h2b
 
 ```
 
-[!MISSING]
+While pupil sizes widened more strongly during unexpected compared to expected trials (*estimate* = `r round(e.exp$hypothesis$Estimate,2)` [`r round(e.exp$hypothesis$CI.Lower,2)`, `r round(e.exp$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(e.exp$hypothesis$Post.Prob*100,2)`%), this effect did not differ between the COMP and the ASD group (*estimate* = `r round(h2a$hypothesis$Estimate,2)` [`r round(h2a$hypothesis$CI.Lower,2)`, `r round(h2a$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h2a$hypothesis$Post.Prob*100,2)`%) or the COMP and the ADHD group (*estimate* = `r round(h2b$hypothesis$Estimate,2)` [`r round(h2b$hypothesis$CI.Lower,2)`, `r round(h2b$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h2b$hypothesis$Post.Prob*100,2)`%).
 
 ## Bayes factor
 
@@ -596,67 +597,15 @@ point.args = list(show_guide = FALSE, alpha = .5),
 violin.args.pos = list(
   width = 0.6, position = position_nudge(x = 0.16)),
 point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
-  scale_fill_manual(values = custom.col) +
-  scale_color_manual(values = custom.col) +
-  labs(title = "Pupil sizes", x = "", y = "pupil sizes") +
+  scale_fill_manual(values = custom.col2) +
+  scale_color_manual(values = custom.col2) +
+  labs(title = "", x = "", y = "pupil size change (mm)") +
   theme_bw() + 
-  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5),
-        legend.direction = "horizontal", text = element_text(size = 15))
+  theme(legend.position = "bottom", plot.title = element_blank(),
+        legend.direction = "horizontal", text = element_text(size = 15), 
+        legend.title = element_blank())
 
-df %>%
-  group_by(subID, diagnosis, expected) %>%
-  summarise(
-    rel_pupil = mean(rel_pupil)
-  ) %>%
-  group_by(subID, diagnosis) %>%
-  summarise(
-    rel_pupil = diff(rel_pupil)
-  ) %>%
-  ggplot(aes(diagnosis, rel_pupil, fill = diagnosis, colour = diagnosis)) + #
-  geom_rain(rain.side = 'r',
-boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
-violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
-boxplot.args.pos = list(
-  position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
-),
-point.args = list(show_guide = FALSE, alpha = .5),
-violin.args.pos = list(
-  width = 0.6, position = position_nudge(x = 0.16)),
-point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
-  geom_hline(yintercept = 0) +
-  scale_fill_manual(values = custom.col) +
-  scale_color_manual(values = custom.col) +
-  labs(title = "Expectancy effect in pupil sizes", x = "", y = "pupil sizes") +
-  theme_bw() + 
-  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5),
-        legend.direction = "horizontal", text = element_text(size = 15))
-
-```
-
-```{r plot_pup2, fig.height=6, fig.width=4}
-# two-way interaction
-df %>%
-  group_by(subID, diagnosis, expected) %>%
-  summarise(
-    rel_pupil = mean(rel_pupil)
-  ) %>% 
-  group_by(diagnosis, expected) %>%
-  summarise(
-    rel_pupil.mn = mean(rel_pupil),
-    rel_pupil.se = sd(rel_pupil) / sqrt(n())
-  ) %>%
-  ggplot(aes(y = rel_pupil.mn, x = diagnosis, group = expected, colour = expected)) +
-  geom_line(position = position_dodge(0.4), linewidth = 1) +
-  geom_errorbar(aes(ymin = rel_pupil.mn - rel_pupil.se, 
-                    ymax = rel_pupil.mn + rel_pupil.se), linewidth = 1, width = 0.5, 
-                position = position_dodge(0.4)) + 
-  geom_point(position = position_dodge(0.4), size = 5) + 
-  labs (x = "diagnosis", y = "pupil size") + 
-  ggtitle("Diagnosis x expectancy") + 
-  scale_fill_manual(values = custom.col) +
-  scale_color_manual(values = custom.col) +
-  theme_bw() + 
-  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5))
+ggsave("plots/FigPUP.svg", units = "cm", width = 27, height = 9)
 
 
 ```

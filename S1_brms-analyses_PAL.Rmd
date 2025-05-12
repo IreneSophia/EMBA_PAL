@@ -59,7 +59,8 @@ sz = 1
 a = 0.5
 
 # custom colour palette
-custom.col = c("#009E73", "#D55E00", c_dark_highlight, "#CC79A7")
+custom.col4 = c("#FFC107", "#004D40", "#1E88E5", "#D81B60")
+custom.col2 = c("#5D3A9B", "#E66100")
 
 # calculate visual angle: px.x should be a vector of c(width, height) in pixel
 vis_ang = function(px.x) {
@@ -901,7 +902,13 @@ The model supports our hypothesis regarding increased reaction time variance in 
 # rain cloud plot
 
 df.var %>%
-  ggplot(aes(expected, rt.var, fill = diagnosis, colour = diagnosis)) + #
+  mutate(
+    group = case_when(
+      diagnosis == "BOTH" ~ "ADHD+ASD",
+      T ~ diagnosis
+    )
+  ) %>%
+  ggplot(aes(expected, rt.var, fill = group, colour = group)) + #
   geom_rain(rain.side = 'r',
 boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
 violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
@@ -912,101 +919,21 @@ point.args = list(show_guide = FALSE, alpha = .5),
 violin.args.pos = list(
   width = 0.6, position = position_nudge(x = 0.16)),
 point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
-  scale_fill_manual(values = custom.col) +
-  scale_color_manual(values = custom.col) +
+  scale_fill_manual(values = custom.col4) +
+  scale_color_manual(values = custom.col4) +
   #ylim(0, 1) +
-  labs(title = "Reaction times variance per subject", x = "", y = "variance") +
+  labs(title = "", x = "", y = "variance (ms)") +
   facet_wrap(. ~ phase) +
   theme_bw() + 
-  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5), 
-        legend.direction = "horizontal", text = element_text(size = 15))
+  theme(legend.position = "bottom", plot.title = element_blank(), 
+        legend.direction = "horizontal", text = element_text(size = 15),
+        legend.title = element_blank())
+
+ggsave("plots/FigRTvar.svg", units = "cm", width = 27, height = 9)
+
 
 ```
 
-Now, we use line plots to visualise out the different main effects and interaction effects in our data. 
-
-```{r plot_var2, fig.height=9}
-
-# two-way interactions
-p1 = df.var %>% 
-  group_by(diagnosis, expected) %>%
-  summarise(
-    var.mn = mean(rt.var),
-    var.se = sd(rt.var) / sqrt(n())
-  ) %>%
-  ggplot(aes(y = var.mn, x = expected, group = diagnosis, colour = diagnosis)) +
-  geom_line(position = position_dodge(0.4), linewidth = 1) +
-  geom_errorbar(aes(ymin = var.mn - var.se, 
-                    ymax = var.mn + var.se), linewidth = 1, width = 0.5, 
-                position = position_dodge(0.4)) + 
-  geom_point(position = position_dodge(0.4), size = 5) + 
-  labs (x = "expectancy", y = "rt var (ms)") + 
-  ggtitle("Diagnosis x expectancy") + 
-  scale_fill_manual(values = custom.col) +
-  scale_color_manual(values = custom.col) +
-  theme_bw() + 
-  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5))
-p2 = df.var %>% 
-  group_by(diagnosis, phase) %>%
-  summarise(
-    var.mn = mean(rt.var),
-    var.se = sd(rt.var) / sqrt(n())
-  ) %>%
-  ggplot(aes(y = var.mn, x = phase, group = diagnosis, colour = diagnosis)) +
-  geom_line(position = position_dodge(0.4), linewidth = 1) +
-  geom_errorbar(aes(ymin = var.mn - var.se, 
-                    ymax = var.mn + var.se), linewidth = 1, width = 0.5, 
-                position = position_dodge(0.4)) + 
-  geom_point(position = position_dodge(0.4), size = 5) + 
-  labs (x = "phase", y = "rt var (ms)") + 
-  ggtitle("Diagnosis x phase") + 
-  scale_fill_manual(values = custom.col) +
-  scale_color_manual(values = custom.col) +
-  theme_bw() + 
-  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5))
-p3 = df.var %>% 
-  group_by(phase, expected) %>%
-  summarise(
-    var.mn = mean(rt.var),
-    var.se = sd(rt.var) / sqrt(n())
-  ) %>%
-  ggplot(aes(y = var.mn, x = expected, group = phase, colour = phase)) +
-  geom_line(position = position_dodge(0.4), linewidth = 1) +
-  geom_errorbar(aes(ymin = var.mn - var.se, 
-                    ymax = var.mn + var.se), linewidth = 1, width = 0.5, 
-                position = position_dodge(0.4)) + 
-  geom_point(position = position_dodge(0.4), size = 5) + 
-  labs (x = "expectancy", y = "rt var (ms)") + 
-  ggtitle("Phase x expectancy") + 
-  scale_fill_manual(values = custom.col) +
-  scale_color_manual(values = custom.col) +
-  theme_bw() + 
-  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5))
-
-# three-way interaction
-p4 =  df.var %>% 
-  group_by(diagnosis, expected, phase) %>%
-  summarise(
-    var.mn = mean(rt.var),
-    var.se = sd(rt.var) / sqrt(n())
-  ) %>%
-  ggplot(aes(y = var.mn, x = expected, group = diagnosis, colour = diagnosis)) +
-  geom_line(position = position_dodge(0.4), linewidth = 1) +
-  geom_errorbar(aes(ymin = var.mn - var.se, 
-                    ymax = var.mn + var.se), linewidth = 1, width = 0.5, 
-                position = position_dodge(0.4)) + 
-  geom_point(position = position_dodge(0.4), size = 5) + 
-  labs (x = "expectancy", y = "rt var (ms)") + 
-  ggtitle("Diagnosis x phase x expectancy") + 
-  scale_fill_manual(values = custom.col) +
-  scale_color_manual(values = custom.col) +
-  facet_wrap(. ~ phase) +
-  theme_bw() + 
-  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5))
-
-ggarrange(p1, p2, p3, p4, ncol = 2, nrow = 2, labels = "AUTO")
-
-```
 
 ## Bayes factor analysis
 
@@ -1670,7 +1597,7 @@ kable(df.ms %>%
 
 ```
 
-The model does not support our hypothesis, neither regarding a decreased difference in reaction time to expected and unexpected outcomes in adults with ASD compared to adults without any psychiatric diagnoses (*estimate* = `r round(h1b$hypothesis$Estimate,2)` [`r round(h1b$hypothesis$CI.Lower,2)`, `r round(h1b$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h1b$hypothesis$Post.Prob*100,2)`%) nor a difference in reaction time to expected and unexpected outcomes in adults with ASD compared to adults without any psychiatric diagnoses (*estimate* = `r round(h1c$hypothesis$Estimate,2)` [`r round(h1c$hypothesis$CI.Lower,2)`, `r round(h1c$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h1c$hypothesis$Post.Prob*100,2)`%). 
+Concerning reaction times, we neither found a credible difference in the effect of expectancy between the autistic and the comparison group (*estimate* = `r round(h1b$hypothesis$Estimate,2)` [`r round(h1b$hypothesis$CI.Lower,2)`, `r round(h1b$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h1b$hypothesis$Post.Prob*100,2)`%) nor between the ADHD and the comparison group (*estimate* = `r round(h1c$hypothesis$Estimate,2)` [`r round(h1c$hypothesis$CI.Lower,2)`, `r round(h1c$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h1c$hypothesis$Post.Prob*100,2)`%). We also did not observe a credible difference between the autistic and the comparison group regarding the difference between the prevolatile and the volatile phase (ASD-COMP: *estimate* = `r round(h1d$hypothesis$Estimate,2)` [`r round(h1d$hypothesis$CI.Lower,2)`, `r round(h1d$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h1d$hypothesis$Post.Prob*100,2)`%); therefore, our hypotheses are not supported by the data. Across groups, the task worked as expected: participants reacted faster on expected trials (unexpected-expected: *estimate* = `r round(e2.1$hypothesis$Estimate,2)` [`r round(e2.1$hypothesis$CI.Lower,2)`, `r round(e2.1$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(e2.1$hypothesis$Post.Prob*100,2)`%) as well as on easier trials (easy-difficult: *estimate* = `r round(e2.6$hypothesis$Estimate,2)` [`r round(e2.6$hypothesis$CI.Lower,2)`, `r round(e2.6$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(e2.6$hypothesis$Post.Prob*100,2)`%). 
 
 ## Plots
 
@@ -1679,7 +1606,13 @@ The model does not support our hypothesis, neither regarding a decreased differe
 # rain cloud plot including all factors
 
 df.pal %>%
-  ggplot(aes(diagnosis, rt.cor, fill = expected, colour = expected)) + #
+  mutate(
+    group = case_when(
+      diagnosis == "BOTH" ~ "ADHD+ASD",
+      T ~ diagnosis
+    )
+  ) %>%
+  ggplot(aes(group, rt.cor, fill = expected, colour = expected)) + #
   geom_rain(rain.side = 'r',
 boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
 violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
@@ -1690,26 +1623,33 @@ point.args = list(show_guide = FALSE, alpha = .5),
 violin.args.pos = list(
   width = 0.6, position = position_nudge(x = 0.16)),
 point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
-  scale_fill_manual(values = custom.col) +
-  scale_color_manual(values = custom.col) +
+  scale_fill_manual(values = custom.col2) +
+  scale_color_manual(values = custom.col2) +
   #ylim(0, 1) +
   labs(title = "Reaction times per subject", x = "", y = "rt (ms)") +
   facet_wrap(difficulty ~ phase) +
   theme_bw() + 
   theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5), 
         legend.direction = "horizontal", text = element_text(size = 15))
+
 ```
 
-```{r plot_rt2, fig.height=6}
+```{r plot_rt2, fig.height=4}
 
 # rain cloud plot excluding difficulty
 
 df.pal %>%
-  group_by(subID, diagnosis, expected, phase) %>%
+  mutate(
+    group = case_when(
+      diagnosis == "BOTH" ~ "ADHD+ASD",
+      T ~ diagnosis
+    )
+  ) %>%
+  group_by(subID, group, expected, phase) %>%
   summarise(
     rt.cor = median(rt.cor, na.rm = T)
   ) %>%
-  ggplot(aes(diagnosis, rt.cor, fill = expected, colour = expected)) + #
+  ggplot(aes(group, rt.cor, fill = expected, colour = expected)) + #
   geom_rain(rain.side = 'r',
 boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
 violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
@@ -1720,255 +1660,17 @@ point.args = list(show_guide = FALSE, alpha = .5),
 violin.args.pos = list(
   width = 0.6, position = position_nudge(x = 0.16)),
 point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
-  scale_fill_manual(values = custom.col) +
-  scale_color_manual(values = custom.col) +
+  scale_fill_manual(values = custom.col2) +
+  scale_color_manual(values = custom.col2) +
   #ylim(0, 1) +
-  labs(title = "Reaction times per subject", x = "", y = "rt (ms)") +
+  labs(title = "", x = "", y = "rt (ms)") +
   facet_wrap(. ~ phase) +
   theme_bw() + 
-  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5), 
-        legend.direction = "horizontal", text = element_text(size = 15))
+  theme(legend.position = "bottom", plot.title = element_blank(), 
+        legend.direction = "horizontal", text = element_text(size = 15),
+        legend.title = element_blank())
 
-
-```
-
-```{r plot_rt3, fig.height=6}
-
-# two-way interactions
-p1 = df.pal %>%
-  group_by(subID, diagnosis, expected) %>%
-  summarise(
-    rt.cor = median(rt.cor, na.rm = T)
-  ) %>% 
-  group_by(diagnosis, expected) %>%
-  summarise(
-    rt.mn = mean(rt.cor),
-    rt.se = sd(rt.cor) / sqrt(n())
-  ) %>%
-  ggplot(aes(y = rt.mn, x = diagnosis, group = expected, colour = expected)) +
-  geom_line(position = position_dodge(0.4), linewidth = 1) +
-  geom_errorbar(aes(ymin = rt.mn - rt.se, 
-                    ymax = rt.mn + rt.se), linewidth = 1, width = 0.5, 
-                position = position_dodge(0.4)) + 
-  geom_point(position = position_dodge(0.4), size = 5) + 
-  labs (x = "diagnosis", y = "rt (ms)") + 
-  ggtitle("Diagnosis x expectancy") + 
-  scale_fill_manual(values = custom.col) +
-  scale_color_manual(values = custom.col) +
-  theme_bw() + 
-  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5))
-p2 = df.pal %>%
-  group_by(subID, diagnosis, phase) %>%
-  summarise(
-    rt.cor = median(rt.cor, na.rm = T)
-  )  %>% 
-  group_by(diagnosis, phase) %>%
-  summarise(
-    rt.mn = mean(rt.cor),
-    rt.se = sd(rt.cor) / sqrt(n())
-  ) %>%
-  ggplot(aes(y = rt.mn, x = phase, group = diagnosis, colour = diagnosis)) +
-  geom_line(position = position_dodge(0.4), linewidth = 1) +
-  geom_errorbar(aes(ymin = rt.mn - rt.se, 
-                    ymax = rt.mn + rt.se), linewidth = 1, width = 0.5, 
-                position = position_dodge(0.4)) + 
-  geom_point(position = position_dodge(0.4), size = 5) + 
-  labs (x = "phase", y = "rt (ms)") + 
-  ggtitle("Diagnosis x phase") + 
-  scale_fill_manual(values = custom.col) +
-  scale_color_manual(values = custom.col) +
-  theme_bw() + 
-  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5))
-
-ggarrange(p1, p2, ncol = 2)
-
-p3 = df.pal %>%
-  group_by(subID, diagnosis, difficulty) %>%
-  summarise(
-    rt.cor = median(rt.cor, na.rm = T)
-  )  %>% 
-  group_by(diagnosis, difficulty) %>%
-  summarise(
-    rt.mn = mean(rt.cor),
-    rt.se = sd(rt.cor) / sqrt(n())
-  ) %>%
-  ggplot(aes(y = rt.mn, x = difficulty, group = diagnosis, colour = diagnosis)) +
-  geom_line(position = position_dodge(0.4), linewidth = 1) +
-  geom_errorbar(aes(ymin = rt.mn - rt.se, 
-                    ymax = rt.mn + rt.se), linewidth = 1, width = 0.5, 
-                position = position_dodge(0.4)) + 
-  geom_point(position = position_dodge(0.4), size = 5) + 
-  labs (x = "difficulty", y = "rt (ms)") + 
-  ggtitle("Diagnosis x difficulty") + 
-  scale_fill_manual(values = custom.col) +
-  scale_color_manual(values = custom.col) +
-  theme_bw() + 
-  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5))
-p4 = df.pal %>%
-  group_by(subID, phase, difficulty) %>%
-  summarise(
-    rt.cor = median(rt.cor, na.rm = T)
-  )  %>% 
-  group_by(phase, difficulty) %>%
-  summarise(
-    rt.mn = mean(rt.cor),
-    rt.se = sd(rt.cor) / sqrt(n())
-  ) %>%
-  ggplot(aes(y = rt.mn, x = phase, group = difficulty, colour = difficulty)) +
-  geom_line(position = position_dodge(0.4), linewidth = 1) +
-  geom_errorbar(aes(ymin = rt.mn - rt.se, 
-                    ymax = rt.mn + rt.se), linewidth = 1, width = 0.5, 
-                position = position_dodge(0.4)) + 
-  geom_point(position = position_dodge(0.4), size = 5) + 
-  labs (x = "phase", y = "rt (ms)") + 
-  ggtitle("Phase x difficulty") + 
-  scale_fill_manual(values = custom.col) +
-  scale_color_manual(values = custom.col) +
-  theme_bw() + 
-  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5))
-
-ggarrange(p3, p4, ncol = 2)
-
-p5 = df.pal %>%
-  group_by(subID, expected, phase) %>%
-  summarise(
-    rt.cor = median(rt.cor, na.rm = T)
-  )  %>% 
-  group_by(phase, expected) %>%
-  summarise(
-    rt.mn = mean(rt.cor),
-    rt.se = sd(rt.cor) / sqrt(n())
-  ) %>%
-  ggplot(aes(y = rt.mn, x = phase, group = expected, colour = expected)) +
-  geom_line(position = position_dodge(0.4), linewidth = 1) +
-  geom_errorbar(aes(ymin = rt.mn - rt.se, 
-                    ymax = rt.mn + rt.se), linewidth = 1, width = 0.5, 
-                position = position_dodge(0.4)) + 
-  geom_point(position = position_dodge(0.4), size = 5) + 
-  labs (x = "phase", y = "rt (ms)") + 
-  ggtitle("Phase x expectancy") + 
-  scale_fill_manual(values = custom.col) +
-  scale_color_manual(values = custom.col) +
-  theme_bw() + 
-  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5))
-p6 = df.pal %>%
-  group_by(subID, expected, difficulty) %>%
-  summarise(
-    rt.cor = median(rt.cor, na.rm = T)
-  )  %>% 
-  group_by(expected, difficulty) %>%
-  summarise(
-    rt.mn = mean(rt.cor),
-    rt.se = sd(rt.cor) / sqrt(n())
-  ) %>%
-  ggplot(aes(y = rt.mn, x = difficulty, group = expected, colour = expected)) +
-  geom_line(position = position_dodge(0.4), linewidth = 1) +
-  geom_errorbar(aes(ymin = rt.mn - rt.se, 
-                    ymax = rt.mn + rt.se), linewidth = 1, width = 0.5, 
-                position = position_dodge(0.4)) + 
-  geom_point(position = position_dodge(0.4), size = 5) + 
-  labs (x = "difficulty", y = "rt (ms)") + 
-  ggtitle("Expectancy x difficulty") + 
-  scale_fill_manual(values = custom.col) +
-  scale_color_manual(values = custom.col) +
-  theme_bw() + 
-  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5))
-
-ggarrange(p5, p6, ncol = 2)
-
-# three-way interaction
-df.pal %>%
-  group_by(subID, diagnosis, expected, phase) %>%
-  summarise(
-    rt.cor = median(rt.cor, na.rm = T)
-  )  %>% 
-  group_by(diagnosis, expected, phase) %>%
-  summarise(
-    rt.mn = mean(rt.cor),
-    rt.se = sd(rt.cor) / sqrt(n())
-  ) %>%
-  ggplot(aes(y = rt.mn, x = expected, group = diagnosis, colour = diagnosis)) +
-  geom_line(position = position_dodge(0.4), linewidth = 1) +
-  geom_errorbar(aes(ymin = rt.mn - rt.se, 
-                    ymax = rt.mn + rt.se), linewidth = 1, width = 0.5, 
-                position = position_dodge(0.4)) + 
-  geom_point(position = position_dodge(0.4), size = 5) + 
-  labs (x = "expectancy", y = "rt (ms)") + 
-  ggtitle("Diagnosis x phase x expectancy") + 
-  scale_fill_manual(values = custom.col) +
-  scale_color_manual(values = custom.col) +
-  facet_wrap(. ~ phase) +
-  theme_bw() + 
-  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5))
-df.pal %>%
-  group_by(subID, diagnosis, expected, difficulty) %>%
-  summarise(
-    rt.cor = median(rt.cor, na.rm = T)
-  )  %>% 
-  group_by(diagnosis, expected, difficulty) %>%
-  summarise(
-    rt.mn = mean(rt.cor),
-    rt.se = sd(rt.cor) / sqrt(n())
-  ) %>%
-  ggplot(aes(y = rt.mn, x = diagnosis, group = expected, colour = expected)) +
-  geom_line(position = position_dodge(0.4), linewidth = 1) +
-  geom_errorbar(aes(ymin = rt.mn - rt.se, 
-                    ymax = rt.mn + rt.se), linewidth = 1, width = 0.5, 
-                position = position_dodge(0.4)) + 
-  geom_point(position = position_dodge(0.4), size = 5) + 
-  labs (x = "diagnosis", y = "rt (ms)") + 
-  ggtitle("Diagnosis x difficulty x expectancy") + 
-  scale_fill_manual(values = custom.col) +
-  scale_color_manual(values = custom.col) +
-  facet_wrap(. ~ difficulty) +
-  theme_bw() + 
-  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5))
-df.pal %>%
-  group_by(subID, diagnosis, phase, difficulty) %>%
-  summarise(
-    rt.cor = median(rt.cor, na.rm = T)
-  )  %>% 
-  group_by(diagnosis, difficulty, phase) %>%
-  summarise(
-    rt.mn = mean(rt.cor),
-    rt.se = sd(rt.cor) / sqrt(n())
-  ) %>%
-  ggplot(aes(y = rt.mn, x = difficulty, group = diagnosis, colour = diagnosis)) +
-  geom_line(position = position_dodge(0.4), linewidth = 1) +
-  geom_errorbar(aes(ymin = rt.mn - rt.se, 
-                    ymax = rt.mn + rt.se), linewidth = 1, width = 0.5, 
-                position = position_dodge(0.4)) + 
-  geom_point(position = position_dodge(0.4), size = 5) + 
-  labs (x = "difficulty", y = "rt (ms)") + 
-  ggtitle("Diagnosis x phase x difficulty") + 
-  scale_fill_manual(values = custom.col) +
-  scale_color_manual(values = custom.col) +
-  facet_wrap(. ~ phase) +
-  theme_bw() + 
-  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5))
-df.pal %>%
-  group_by(subID, expected, phase, difficulty) %>%
-  summarise(
-    rt.cor = median(rt.cor, na.rm = T)
-  )  %>% 
-  group_by(expected, phase, difficulty) %>%
-  summarise(
-    rt.mn = mean(rt.cor),
-    rt.se = sd(rt.cor) / sqrt(n())
-  ) %>%
-  ggplot(aes(y = rt.mn, x = phase, group = expected, colour = expected)) +
-  geom_line(position = position_dodge(0.4), linewidth = 1) +
-  geom_errorbar(aes(ymin = rt.mn - rt.se, 
-                    ymax = rt.mn + rt.se), linewidth = 1, width = 0.5, 
-                position = position_dodge(0.4)) + 
-  geom_point(position = position_dodge(0.4), size = 5) + 
-  labs (x = "phase", y = "rt (ms)") + 
-  ggtitle("Phase x expectancy x difficulty") + 
-  scale_fill_manual(values = custom.col) +
-  scale_color_manual(values = custom.col) +
-  facet_wrap(. ~ difficulty) +
-  theme_bw() + 
-  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5))
+ggsave("plots/FigRT.svg", units = "cm", width = 27, height = 9)
 
 ```
 
