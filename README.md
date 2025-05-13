@@ -12,7 +12,7 @@ This repository is a work in progress. The scripts are continuously augmented.
 
 ## How to run this analysis
 
-This repository includes scripts for the presentation of the paradigm, preprocessing of the data and analysis. Due to privacy issues, we only share preprocessed and anonymised data. Therefore, we can only guarantee that the final analysis scripts can be run based on this repository: 
+This repository includes scripts for the presentation of the paradigm, preprocessing of the data and analysis. Due to privacy issues, we only share preprocessed and anonymised data. Since one of the models is too large to upload on github, it needs to be downloaded from here: https://osf.io/krp4s/files/osfstorage. The model must be saved in the `brms_models` folder. Only if this model is downloade, we can guarantee that these scripts can be run: 
 
 * `S1_brms-analyses_PAL.Rmd` : behavioural analysis > run this first
 * `S2_brms-analyses_PAL-PUP.Rmd` : pupil size analysis

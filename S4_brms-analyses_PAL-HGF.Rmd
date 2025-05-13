@@ -473,7 +473,7 @@ h3a
 ```
 
 
-*estimate* = `r round(h3a$hypothesis$Estimate,2)` [`r round(h3a$hypothesis$CI.Lower,2)`, `r round(h2a$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h3a$hypothesis$Post.Prob*100,2)`%
+*estimate* = `r round(h3a$hypothesis$Estimate,2)` [`r round(h3a$hypothesis$CI.Lower,2)`, `r round(h3a$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h3a$hypothesis$Post.Prob*100,2)`%
 
 ## Bayes factor
 
@@ -548,7 +548,7 @@ df.pal.bf %>%
   geom_vline(xintercept = "1") +
   geom_hline(yintercept = 0) +
   ggtitle("Sensitivity analysis with the intercept-only model as reference") +
-  scale_colour_manual(values = custom.col) +
+  #scale_colour_manual(values = custom.col) +
   theme_bw() +
   theme(legend.position = "bottom",
         axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
@@ -928,7 +928,7 @@ df.pal.bf %>%
   geom_vline(xintercept = "1") +
   geom_hline(yintercept = 0) +
   ggtitle("Sensitivity analysis with the intercept-only model as reference") +
-  scale_colour_manual(values = custom.col) +
+  #scale_colour_manual(values = custom.col) +
   theme_bw() +
   theme(legend.position = "bottom",
         axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
@@ -1293,7 +1293,7 @@ df.pal.bf %>%
   geom_vline(xintercept = "1") +
   geom_hline(yintercept = 0) +
   ggtitle("Sensitivity analysis with the intercept-only model as reference") +
-  scale_colour_manual(values = custom.col) +
+  #scale_colour_manual(values = custom.col) +
   theme_bw() +
   theme(legend.position = "bottom",
         axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
@@ -1349,8 +1349,8 @@ point.args = list(show_guide = FALSE, alpha = .5),
 violin.args.pos = list(
   width = 0.6, position = position_nudge(x = 0.16)),
 point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
-  scale_fill_manual(values = custom.col) +
-  scale_color_manual(values = custom.col) +
+  scale_fill_manual(values = custom.col4) +
+  scale_color_manual(values = custom.col4) +
   facet_wrap(. ~ parameter, scales = "free", ncol = 3) +
   labs(title = "HGF parameter", x = "", y = "") +
   theme_bw() + 
@@ -1833,8 +1833,8 @@ point.args = list(show_guide = FALSE, alpha = .5),
 violin.args.pos = list(
   width = 0.6, position = position_nudge(x = 0.16)),
 point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
-  scale_fill_manual(values = custom.col) +
-  scale_color_manual(values = custom.col) +
+  scale_fill_manual(values = custom.col4) +
+  scale_color_manual(values = custom.col4) +
   facet_wrap(. ~ change, scales = "free") +
   labs(title = "Learning rate updates", x = "", y = "") +
   theme_bw() + 
@@ -2229,8 +2229,8 @@ point.args = list(show_guide = FALSE, alpha = .5),
 violin.args.pos = list(
   width = 0.6, position = position_nudge(x = 0.16)),
 point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
-  scale_fill_manual(values = custom.col) +
-  scale_color_manual(values = custom.col) +
+  scale_fill_manual(values = custom.col4) +
+  scale_color_manual(values = custom.col4) +
   facet_wrap(. ~ parameter, scales = "free", ncol = 3) +
   labs(title = "HGF parameter", x = "", y = "") +
   theme_bw() + 
@@ -2357,8 +2357,8 @@ point.args = list(show_guide = FALSE, alpha = .5),
 violin.args.pos = list(
   width = 0.6, position = position_nudge(x = 0.16)),
 point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
-  scale_fill_manual(values = custom.col) +
-  scale_color_manual(values = custom.col) +
+  scale_fill_manual(values = custom.col4) +
+  scale_color_manual(values = custom.col4) +
   facet_wrap(. ~ change, scales = "free") +
   labs(title = "Learning rate updates", x = "", y = "") +
   theme_bw() + 

@@ -11,7 +11,6 @@ knitr::opts_chunk$set(echo = T, warning = F, message = F, fig.align = 'center', 
 ls.packages = c("knitr",# kable
     "ggplot2",          # plots
     "brms",             # Bayesian lmms
-    "designr",          # simLMM
     "bridgesampling",   # bridge_sampler
     "tidyverse",        # tibble stuff
     "ggpubr",           # ggarrange
@@ -868,6 +867,72 @@ e2 = hypothesis(m.var, "0 < diagnosis1 + 2*diagnosis2 + diagnosis3",
                 alpha = 0.025)
 e2
 
+## Exploration of possible transition effects
+
+## create design matrix to figure out how to set comparisons for hypotheses
+df.des = cbind(df.var, 
+               model.matrix(~ diagnosis * expected * phase, 
+                            data = df.var)) %>%
+  select(-subID, -rt.var, -perc, -totaln, -valuen) %>% distinct()
+
+# COMP(vol-pre) > ADHD(vol-pre)
+as.data.frame(t(df.des %>% 
+    ungroup() %>%
+    filter((diagnosis == "ADHD" | diagnosis == "COMP") & 
+             ((phase == "volatile") | (phase == "prevolatile"))) %>%
+    group_by(diagnosis, phase) %>%
+    summarise(across(where(is.numeric), ~ mean(.x))) %>%
+    group_by(diagnosis) %>%
+    summarise(across(where(is.numeric), ~ diff(.x))) %>%
+    select(where(is.numeric)) %>%
+    map_df(~ diff(.x)))) %>%
+  filter(V1 != 0)
+e3 = hypothesis(m.var, "0 < 2*diagnosis1:phase1 + diagnosis2:phase1 + diagnosis3:phase1 +
+                - (2*diagnosis1:phase2 + diagnosis2:phase2 + diagnosis3:phase2)", 
+                alpha = 0.025)
+e3
+
+# COMP(vol-pre) > ASD(vol-pre)
+e4 = hypothesis(m.var, "0 < diagnosis1:phase1 + 2*diagnosis2:phase1 + diagnosis3:phase1 +
+                - (diagnosis1:phase2 + 2*diagnosis2:phase2 + diagnosis3:phase2)", 
+                alpha = 0.025)
+e4
+
+# COMP(vol-pre) > BOTH(vol-pre)
+e5 = hypothesis(m.var, "0 < diagnosis1:phase1 + diagnosis2:phase1 + 2*diagnosis3:phase1 +
+                - (diagnosis1:phase2 + diagnosis2:phase2 + 2*diagnosis3:phase2)", 
+                alpha = 0.025)
+e5
+
+# COMP(post-vol) < ADHD(post-vol)
+as.data.frame(t(df.des %>% 
+    ungroup() %>%
+    filter((diagnosis == "ADHD" | diagnosis == "COMP") & 
+             ((phase == "volatile") | (phase == "postvolatile"))) %>%
+    group_by(diagnosis, phase) %>%
+    summarise(across(where(is.numeric), ~ mean(.x))) %>%
+    group_by(diagnosis) %>%
+    summarise(across(where(is.numeric), ~ diff(.x))) %>% # post - volatile
+    select(where(is.numeric)) %>%
+    map_df(~ diff(.x)))) %>% # COMP - ADHD
+  filter(V1 != 0) 
+e6 = hypothesis(m.var, "0 > 2*diagnosis1:phase1 + diagnosis2:phase1 + diagnosis3:phase1 +
+                + 2*(2*diagnosis1:phase2 + diagnosis2:phase2 + diagnosis3:phase2)", 
+               alpha = 0.025)
+e6
+
+# COMP(post-vol) < ASD(post-vol)
+e7 = hypothesis(m.var, "0 > diagnosis1:phase1 + 2*diagnosis2:phase1 + diagnosis3:phase1 +
+                + 2*(diagnosis1:phase2 + 2*diagnosis2:phase2 + diagnosis3:phase2)", 
+                alpha = 0.025)
+e7
+
+# COMP(post-vol) < BOTH(post-vol)
+e8 = hypothesis(m.var, "0 > diagnosis1:phase1 + diagnosis2:phase1 + 2*diagnosis3:phase1 +
+                + 2*(diagnosis1:phase2 + diagnosis2:phase2 + 2*diagnosis3:phase2)", 
+                alpha = 0.025)
+e8
+
 ## extract predicted differences in ms instead of log data
 df.new = df.var %>% 
   select(diagnosis, phase, expected) %>% 
@@ -888,8 +953,21 @@ df.ms = df.ms %>%
     ADHD          = rowMeans(across(matches("ADHD_.*"))),
     ASD           = rowMeans(across(matches("ASD_.*"))),
     BOTH          = rowMeans(across(matches("BOTH_.*"))),
-    h1a_COMPvADHD = ADHD - COMP
+    h1a_COMPvADHD = ADHD - COMP,
+    COMPvol       = rowMeans(across(matches("COMP_volatile.*"))),
+    COMPpre       = rowMeans(across(matches("COMP_prevolatile.*"))),
+    ADHDvol       = rowMeans(across(matches("ADHD_volatile.*"))),
+    ADHDpre       = rowMeans(across(matches("ADHD_prevolatile.*"))),
+    ASDvol        = rowMeans(across(matches("ASD_volatile.*"))),
+    ASDpre        = rowMeans(across(matches("ASD_prevolatile.*"))),
+    BOTHvol       = rowMeans(across(matches("BOTH_volatile.*"))),
+    BOTHpre       = rowMeans(across(matches("BOTH_prevolatile.*"))),
+    e3_COMPvADHD  = (COMPvol - COMPpre) - (ADHDvol - ADHDpre),
+    e4_COMPvADHD  = (COMPvol - COMPpre) - (ASDvol  - ASDpre),
+    e5_COMPvADHD  = (COMPvol - COMPpre) - (BOTHvol - BOTHpre)
     )
+
+psych::describe(df.ms %>% select(starts_with("e") | starts_with("h")))
 
 ```
 
@@ -931,6 +1009,27 @@ point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.
 
 ggsave("plots/FigRTvar.svg", units = "cm", width = 27, height = 9)
 
+# plot transition effects specifically
+df.var %>% 
+  group_by(diagnosis, phase, expected) %>%
+  summarise(
+    var.mn = mean(rt.var),
+    var.se = sd(rt.var) / sqrt(n())
+  ) %>%
+  ggplot(aes(y = var.mn, x = phase, 
+             group = diagnosis, colour = diagnosis)) +
+  geom_line(position = position_dodge(0.4), linewidth = 1) +
+  geom_errorbar(aes(ymin = var.mn - var.se, 
+                    ymax = var.mn + var.se), linewidth = 1, width = 0.5, 
+                position = position_dodge(0.4)) + 
+  geom_point(position = position_dodge(0.4), size = 5) + 
+  labs (x = "phase", y = "rt var (ms)") + 
+  ggtitle("Diagnosis x phase x expected") + 
+  facet_wrap(. ~ expected) +
+  scale_fill_manual(values = custom.col4) +
+  scale_color_manual(values = custom.col4) +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5))
 
 ```
 
@@ -1672,6 +1771,28 @@ point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.
 
 ggsave("plots/FigRT.svg", units = "cm", width = 27, height = 9)
 
+# plot transition effects specifically
+df.pal %>% 
+  group_by(diagnosis, phase, expected) %>%
+  summarise(
+    rt.mn = mean(rt.cor),
+    rt.se = sd(rt.cor) / sqrt(n())
+  ) %>%
+  ggplot(aes(y = rt.mn, x = phase, 
+             group = diagnosis, colour = diagnosis)) +
+  geom_line(position = position_dodge(0.4), linewidth = 1) +
+  geom_errorbar(aes(ymin = rt.mn - rt.se, 
+                    ymax = rt.mn + rt.se), linewidth = 1, width = 0.5, 
+                position = position_dodge(0.4)) + 
+  geom_point(position = position_dodge(0.4), size = 5) + 
+  labs (x = "phase", y = "rt var (ms)") + 
+  ggtitle("Diagnosis x phase x expected") + 
+  facet_wrap(. ~ expected) +
+  scale_fill_manual(values = custom.col4) +
+  scale_color_manual(values = custom.col4) +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5))
+
 ```
 
 ## Bayes factor analysis
@@ -2009,8 +2130,8 @@ point.args = list(show_guide = FALSE, alpha = .5),
 violin.args.pos = list(
   width = 0.6, position = position_nudge(x = 0.16)),
 point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
-  scale_fill_manual(values = custom.col) +
-  scale_color_manual(values = custom.col) +
+  scale_fill_manual(values = custom.col4) +
+  scale_color_manual(values = custom.col4) +
   labs(title = "Accuracies per subject", x = "", y = "accuracy (%)") +
   facet_wrap(phase ~ difficulty) +
   theme_bw() + 
@@ -2041,8 +2162,8 @@ df.acc %>%
   facet_wrap(. ~ diagnosis) +
   ylim(75,100) +
   labs (x = "difficulty", y = "accuracy") + 
-  scale_fill_manual(values = custom.col) +
-  scale_color_manual(values = custom.col) +
+  scale_fill_manual(values = custom.col4) +
+  scale_color_manual(values = custom.col4) +
   theme_bw() + 
   theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5))
 

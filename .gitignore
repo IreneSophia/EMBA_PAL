@@ -1,11 +1,11 @@
 /_brms_SBC_cache/res_*.rds
-/_brms_SBC_cache/dat_*.rds
+/_brms_SBC_cache/dat*.rds
 /_brms_sens_cache/*.rds
 /_brms_models/*_bf.rds
+/_brms_models/m_pal.rds
+/_brms_models/m_pal_rtuse.rds
 /_brms_models/*_full.rds
 /_brms_models/*_noDiff.rds
-/_brms_models/m_pal.rds
-/_brms_models/m_pal_rtuse.rds 
 /HGF_results/sim/model_identifiability.mat
 /HGF_results/sim/recovery_analysis.mat
 /EMBA_HGF/tapas*
