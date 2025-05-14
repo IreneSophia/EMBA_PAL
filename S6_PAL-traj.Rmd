@@ -71,59 +71,99 @@ First, we load the parameters from the winning model.
 
 ```{r prep, fig.height=4}
 
-# load the data [!MISSING]
+# load the data
+df = read_csv(file.path("data", "PAL_data.csv"))
+
+# length of blocks
+nblock = 24
 
 ```
 
 # Reaction times
 
-```{r rt_cont, fig.height=6}
+```{r rt_cont, fig.height=6, fig.width=16}
 
 df %>%
+  mutate(
+    rt.cor = if_else(acc, rt, NA)
+  ) %>%
   group_by(diagnosis, trl) %>%
   summarise(
-    rt.std = sd(rt.cor, na.rm = T),
-    rt.cor = mean(rt.cor, na.rm = T)
+    rt.std = sd(rt.cor, na.rm = T)/sqrt(n()),
+    rt.avg = mean(rt.cor, na.rm = T)
   ) %>%
-  ggplot(., aes(colour = diagnosis, group = diagnosis)) +
-  geom_ribbon(aes(ymin = rt.cor - rt.std, ymax = rt.cor + rt.std), 
-              alpha = 0.5) + 
-  geom_line(aes(x = trl, y = rt.cor)) +
+  ggplot(., aes(group = diagnosis, x = trl)) +
+  geom_ribbon(aes(ymin = rt.avg - rt.std, ymax = rt.avg + rt.std, fill = diagnosis), 
+              alpha = 0.25) + 
+  geom_line(aes(colour = diagnosis, y = rt.avg)) +
   geom_vline(xintercept = c(72, 264), colour = "black") + 
-  labs(title = "RTs across task", x = "trials", y = "") +
+  labs(title = "RTs across task", x = "trials", y = "RT (ms)") +
+  scale_fill_manual(values  = custom.col4) +
+  scale_color_manual(values = custom.col4) +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5), 
+        legend.direction = "horizontal", text = element_text(size = 15))
+```
+
+```{r rt_cont2, fig.height=6}
+df %>%
+  mutate(
+    rt.cor = if_else(acc, rt, NA),
+    block = if_else(trl%%nblock == 0,trl/nblock,NA)
+  ) %>%
+  fill(block, .direction = "up") %>%
+  group_by(subID, diagnosis, block) %>%
+  summarise(
+    rt.avg = mean(rt.cor, na.rm = T)
+  ) %>%
+  group_by(diagnosis, block) %>%
+  summarise(
+    rt.se  = sd(rt.avg, na.rm = T)/sqrt(n()),
+    rt.avg = mean(rt.avg, na.rm = T)
+  ) %>%
+  ggplot(., aes(x = block, group = diagnosis)) +
+  geom_ribbon(aes(ymin = rt.avg - rt.se, ymax = rt.avg + rt.se, fill = diagnosis), 
+              alpha = 0.25) + 
+  geom_line(aes(y = rt.avg, colour = diagnosis)) +
+  geom_vline(xintercept = c(72/nblock, 264/nblock), colour = "black") + 
+  labs(title = "RTs across task", x = sprintf("block of %d trials", nblock), 
+       y = "mean RT (ms)") +
   scale_fill_manual(values  = custom.col4) +
   scale_color_manual(values = custom.col4) +
   theme_bw() + 
   theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5), 
         legend.direction = "horizontal", text = element_text(size = 15))
 
+
 ```
 
 
 # Reaction time variance
 
-```{r rt_cont, fig.height=6}
+```{r rtvar_cont, fig.height=6}
 
 df %>%
   mutate(
-    trl = if_else(trl%%8 == 0,trl/8,NA)
+    rt.cor = if_else(acc, rt, NA),
+    block = if_else(trl%%nblock == 0,trl/nblock,NA)
   ) %>%
-  fill(trl, .direction = "up") %>%
-  group_by(subID, trl) %>%
+  fill(block, .direction = "up") %>%
+  group_by(subID, diagnosis, block) %>%
   summarise(
-    rt.var = var(rt.cor, na.rm = T)
+    rt.var = sd(rt.cor, na.rm = T)
   ) %>%
-  group_by(diagnosis, trl) %>%
+  group_by(diagnosis, block) %>%
   summarise(
-    rt.std = sd(rt.var, na.rm = T),
+    rt.se  = sd(rt.var, na.rm = T)/sqrt(n()),
     rt.var = mean(rt.var, na.rm = T)
-  )
-  ggplot(., aes(x = trl, colour = diagnosis, group = diagnosis)) +
-  geom_ribbon(aes(ymin = rt.var - rt.std, ymax = rt.var + rt.std), 
-              alpha = 0.5) + 
-  geom_line(aes(y = rt.var)) +
-  geom_vline(xintercept = c(72, 264), colour = "black") + 
-  labs(title = "RT vars across task", x = "block of 8 trials", y = "") +
+  ) %>%
+  ggplot(., aes(x = block, group = diagnosis)) +
+  geom_ribbon(aes(ymin = rt.var - rt.se, ymax = rt.var + rt.se, fill = diagnosis), 
+              alpha = 0.25) + 
+  geom_line(aes(y = rt.var, colour = diagnosis)) +
+  geom_vline(xintercept = c(72/nblock, 264/nblock), colour = "black") + 
+  labs(title = "RT vars across task", x = sprintf("block of %d trials", nblock), 
+       y = "standard deviation RT (ms)") +
   scale_fill_manual(values  = custom.col4) +
   scale_color_manual(values = custom.col4) +
   theme_bw() + 
