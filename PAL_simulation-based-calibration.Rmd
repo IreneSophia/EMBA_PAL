@@ -1,0 +1,1411 @@
+---
+title: "PAL simulation-based calibration"
+author: "I. S. Plank"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    number_sections: true
+fontsize: 10pt
+#geometry: margin=0.5in
+---
+  
+```{r settings, include=FALSE}
+
+knitr::opts_chunk$set(echo = T, warning = F, message = F, fig.align = 'center', fig.width = 7.4)
+ls.packages = c("knitr",# kable
+    "ggplot2",          # plots
+    "brms",             # Bayesian lmms
+    "bridgesampling",   # bridge_sampler
+    "tidyverse",        # tibble stuff
+    "ggpubr",           # ggarrange
+    "ggrain",           # geom_rain
+    "bayesplot",        # plots for posterior predictive checks
+    "SBC",              # plots for checking computational faithfulness
+    "rstatix",          # anova
+    "effectsize",       # interpret_bf
+    "BayesFactor", 
+    "bayestestR"        # equivalence_test
+)
+
+lapply(ls.packages, library, character.only=TRUE)
+
+# set cores
+options(mc.cores = parallel::detectCores())
+
+# set options for SBC
+use_cmdstanr = getOption("SBC.vignettes_cmdstanr", TRUE) # Set to false to use rstan instead
+options(brms.backend = "cmdstanr")
+
+# using parallel processing
+library(future)
+plan(multisession)
+
+# Setup caching of results
+cache_dir = "./_brms_SBC_cache"
+if(!dir.exists(cache_dir)) {
+  dir.create(cache_dir)
+}
+
+# graph settings 
+c_light = "#a9afb2"; c_light_highlight = "#8ea5b2"; c_mid = "#6b98b2" 
+c_mid_highlight = "#3585b2"; c_dark = "#0072b2"; c_dark_highlight = "#0058b2" 
+c_green = "#009E73"
+c_dark_green = "#006f50"
+sz = 1
+a = 0.5
+
+```
+
+<style type="text/css">
+  .main-container {
+    max-width: 1100px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+</style>
+  
+# Task info and setup
+  
+This R Markdown script assesses models for the PAL (probabilistic associative learning) task of the EMBA project.
+
+## Some general settings
+
+```{r set}
+
+# number of simulations
+nsim = 250
+
+# set the seed
+set.seed(2468)
+
+```
+
+## Package versions
+
+The following packages are used in this RMarkdown file: 
+  
+```{r lib_versions, echo=F}
+
+print(R.Version()$version.string)
+
+for (package in ls.packages) {
+  print(sprintf("%s version %s", package, packageVersion(package)))
+}
+
+```
+
+## Evaluation guidelines 
+
+We perform prior predictive checks as proposed in Schad, Betancourt and Vasishth (2020) using the SBC package. To do so, we create simulated datasets where parameters are simulated from the priors. These parameters are used to create one fake dataset. Both the true underlying parameters and the simulated values are saved. Then, we create graphs showing the prior predictive distribution of the simulated values to check whether our priors fit our general expectations about the data. Next, we perform checks of computational faithfulness and model sensitivity as proposed by Schad, Betancourt and Vasishth (2020) and implemented in the SBC package. We create models for each of the simulated datasets. Last, we calculate performance metrics for each of these models, focusing on the population-level parameters. 
+
+These evaluations were performed for models with two groups; however, they should still apply to the same models with three groups. 
+
+## Preparation
+
+First, we create the data. Then, all predictors are set to sum contrasts. 
+
+```{r prep}
+
+# load the trial order
+df.trl = read_csv('data/PAL_scheme.csv', show_col_types = F) %>%
+  select(trl, emo, tone, difficulty, phase, expected)
+
+# create the data
+df.pal = data.frame()
+groups = c("A", "B")
+nos    = 22 # number of subjects per group
+for (g in groups) {
+  for (i in 1:nos) {
+    df.pal = rbind(df.pal, 
+                   df.trl %>% mutate(subID = sprintf("%s%02d", g, i),
+                                     diagnosis = g))
+  }
+}
+
+# add bogus rts
+df.pal = df.pal %>% mutate(rt.cor = 1)
+
+# drop the neutral condition for the analysis
+df.pal = df.pal %>%
+  filter(expected != "neutral") %>% droplevels() %>%
+  mutate_if(is.character, as.factor) %>%
+  ungroup()
+df.var = df.pal %>%
+    group_by(subID, diagnosis, phase, expected) %>% 
+    summarise(
+      rt.var = sd(rt.cor, na.rm = T) + 1
+    ) %>%
+  filter(expected != "neutral") %>% droplevels() %>%
+  mutate_if(is.character, as.factor) %>%
+  ungroup()
+
+# set and print the contrasts
+contrasts(df.pal$diagnosis) = contr.sum(2)
+contrasts(df.pal$diagnosis)
+contrasts(df.pal$expected) = contr.sum(2)
+contrasts(df.pal$expected)
+contrasts(df.pal$phase) = contr.sum(3)
+contrasts(df.pal$phase)
+contrasts(df.pal$difficulty) = contr.sum(3)
+contrasts(df.pal$difficulty)
+
+contrasts(df.var$diagnosis) = contr.sum(2)
+contrasts(df.var$diagnosis)
+contrasts(df.var$expected) = contr.sum(2)
+contrasts(df.var$expected)
+contrasts(df.var$phase) = contr.sum(3)
+contrasts(df.var$phase)
+
+```
+
+# Reaction time variance
+
+In the preregistration, we noted the following population-level effects for the model of the reaction time variances: group, expectancy, phase and difficulty. However, the posterior fit for this model was suboptimal, therefore, we dropped the predictor difficulty. 
+
+## Model setup
+
+```{r model_var}
+
+# figure out slopes for subjects
+kable(head(df.var %>% count(subID, expected)))
+kable(head(df.var %>% count(subID, phase)))
+kable(head(df.var %>% count(subID, expected, phase)))
+
+# code for filenames
+code = "PAL-var"
+
+# model formula
+f.var = brms::bf(rt.var ~ diagnosis * expected * phase +
+                   (expected + phase | subID)
+                 )
+
+# set weakly informative priors
+priors = c(
+  prior(normal(4.50, 0.50),  class = Intercept),
+  prior(normal(0,    0.50),  class = sigma),
+  prior(normal(0.15, 0.15),  class = sd),
+  prior(normal(0,    0.25),  class = b)
+)
+
+```
+
+## Simulation-based calibration
+
+```{r sbc_var1}
+
+# check if the SBC already exists
+if (file.exists(file.path(cache_dir, sprintf("df_res_%s.rds", code)))) {
+  # load in the results of the SBC
+  df.results = readRDS(file.path(cache_dir, sprintf("df_res_%s.rds", code)))
+  df.backend = readRDS(file.path(cache_dir, sprintf("df_div_%s.rds", code)))
+  dat        = readRDS(file.path(cache_dir, sprintf("dat_%s.rds", code)))
+} else {
+  # stimulate some data
+  set.seed(2486)
+  gen = SBC_generator_brms(f.var, data = df.var, prior = priors,
+   thin = 50, warmup = 10000, refresh = 2000,
+   generate_lp = TRUE, family = lognormal, init = 0.1)
+  bck = SBC_backend_brms_from_generator(gen, chains = 4, thin = 1,
+    warmup = 1500, iter = 6000)
+  dat = generate_datasets(gen, nsim)
+  saveRDS(dat, file.path(cache_dir, sprintf("dat_%s.rds", code)))
+  # perform the SBC
+  res = compute_SBC(dat, bck, keep_fits = F,
+        cache_mode     = "results", 
+        cache_location = file.path(cache_dir, sprintf("res_%s", code)))
+  df.results = res$stats
+  df.backend = res$backend_diagnostics
+  saveRDS(df.results, file = file.path(cache_dir, 
+                                       paste0("df_res_", code, ".rds")))
+  saveRDS(df.backend, file = file.path(cache_dir, 
+                                       paste0("df_div_", code, ".rds")))
+}
+
+```
+
+We start by investigating the rhats and the number of divergent samples. This shows that only `r nrow(df.results %>% group_by(sim_id) %>% summarise(rhat = max(rhat)) %>% filter(rhat >= 1.05))` of `r nrow(df.backend)` simulations had at least one parameter that had an rhat of at least 1.05 but `r nrow(df.backend %>% filter(n_divergent > 0))` models had divergent samples (mean = `r round(mean(df.backend[df.backend$n_divergent > 0,]$n_divergent),2)`). This suggests that this model performs well, but we will check for divergence issues in the final models. 
+
+Next, we can plot the simulated values to perform prior predictive checks. 
+
+```{r sbc_var2, fig.height=6}
+
+# create a matrix out of generated data
+dvfakemat = matrix(NA, nrow(dat[['generated']][[1]]), length(dat[['generated']])) 
+for (i in 1:length(dat[['generated']])) {
+  dvfakemat[,i] = dat[['generated']][[i]][[1]]
+}
+
+# compute one histogram per simulated data-set 
+dvfakematH = dvfakemat
+dvfakematH[dvfakematH > 1000] = 1000
+breaks = seq(0, max(dvfakematH, na.rm=T), length.out = 101) 
+binwidth = breaks[2] - breaks[1]
+histmat = matrix(NA, ncol = dim(dvfakemat)[2], nrow = length(breaks)-1) 
+for (i in 1:dim(dvfakemat)[2]) {
+  histmat[,i] = hist(dvfakematH[,i], breaks = breaks, plot = F)$counts 
+}
+# for each bin, compute quantiles across histograms 
+probs = seq(0.1, 0.9, 0.1) 
+quantmat = as.data.frame(matrix(NA, nrow=dim(histmat)[1], ncol = length(probs)))
+names(quantmat) = paste0("p", probs)
+for (i in 1:dim(histmat)[1]) {
+  quantmat[i,] = quantile(histmat[i,], p = probs)
+}
+quantmat$x = breaks[2:length(breaks)] - binwidth/2 # add bin mean 
+p1 = ggplot(data = quantmat, aes(x = x)) + 
+  geom_ribbon(aes(ymax = p0.9, ymin = p0.1), fill = c_light) + 
+  geom_ribbon(aes(ymax = p0.8, ymin = p0.2), fill = c_light_highlight) + 
+  geom_ribbon(aes(ymax = p0.7, ymin = p0.3), fill = c_mid) + 
+  geom_ribbon(aes(ymax = p0.6, ymin = p0.4), fill = c_mid_highlight) + 
+  geom_line(aes(y = p0.5), colour = c_dark, linewidth = 1) + 
+  labs(title = "Distribution of simulated values", y = "", x = "") +
+  theme_bw()
+
+tmpM = apply(dvfakemat, 2, mean) # mean 
+tmpSD = apply(dvfakemat, 2, sd) 
+p2 = ggplot() + 
+  stat_bin(aes(x = tmpM), fill = c_dark)  + 
+  labs(x = "Mean", title = "Means of simulated values") +
+  theme_bw()
+p3 = ggplot() + 
+  stat_bin(aes(x = tmpSD), fill = c_dark) + 
+  labs(x = "SD", title = "SDs of simulated values") +
+  theme_bw()
+p = ggarrange(p1, 
+  ggarrange(p2, p3, ncol = 2, labels = c("B", "C")), 
+  nrow = 2, labels = "A")
+annotate_figure(p, top = text_grob("Prior predictive checks", face = "bold", size = 14))
+
+```
+
+Subfigure A shows the distribution of the simulated data with bluer bands being more likely than greyer bands. It shows a general distribution that fits our expectations, even though there are a few values that are unreastically large. The same applies to the distribution of the means and standard deviations in the simulated datasets in Subfigure B. We go ahead with these priors and check the results of the SBC. We only plot the results from the models that had no divergence issues. 
+
+```{r sbc_var3, fig.height=6}
+
+# get simulation numbers with issues
+mx_rnk = max(df.results$max_rank)
+check = merge(df.results %>% 
+    group_by(sim_id) %>% 
+      summarise(rhat = max(rhat, na.rm = T),
+                max_rank = mean(max_rank)) %>% 
+    filter(rhat >= 1.05 | max_rank != mx_rnk), 
+  df.backend %>% filter(n_divergent > 0), all = T)
+
+# plot SBC with functions from the SBC package focusing on population-level parameters
+a = 0.5
+df.results.b = df.results %>% 
+  filter(substr(variable, 1, 2) == "b_") %>% 
+  filter(!(sim_id %in% check$sim_id))
+p1 = plot_ecdf_diff(df.results.b) + theme_bw() + theme(legend.position = "none") +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3))
+p2 = plot_rank_hist(df.results.b, bins = 20) + theme_bw() +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3))
+
+p = ggarrange(p1, p2, labels = "AUTO", ncol = 1, nrow = 2)
+annotate_figure(p, top = text_grob("Computational faithfulness and model sensitivity", 
+                                   face = "bold", size = 14))
+
+```
+
+Next, we check the ranks of the parameters. If the model is unbiased, these should be uniformly distributed (Schad, Betancourt and Vasishth, 2020). The sample empirical cumulative distribution function (ECDF) shows deviations from the theoretical distribution (95%) and the rank histogram also shows ranks outside the 95% expected range. However, we judge this to be acceptable as we cannot identify clear bias patterns as described in the information accompanying the SBC package: https://hyunjimoon.github.io/SBC/articles/rank_visualizations.html
+
+```{r sbc_var4, fig.height=9}
+
+p3 = plot_sim_estimated(df.results.b, alpha = .8) + theme_bw() +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3))
+p4 = plot_contraction(df.results.b, 
+                      prior_sd = 
+                        setNames(c(0.50, 
+                                   rep(0.25,
+                                       length(unique(df.results.b$variable))-1)), 
+                                 unique(df.results.b$variable))) +
+  theme_bw() +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3))
+
+p = ggarrange(p3, p4, labels = "AUTO", ncol = 1, nrow = 2)
+annotate_figure(p, top = text_grob("Computational faithfulness and model sensitivity", 
+                                   face = "bold", size = 14))
+
+```
+
+Then, we investigated the relationship between the simulated true parameters and the posterior estimates. Although there are individual values diverging from the expected pattern, most parameters were recovered successfully within an uncertainty interval of alpha = 0.05. 
+
+Last, we explore the z-score and the posterior contraction of our population-level predictors. The z-score "determines the distance of the posterior mean from the true simulating parameter", while the posterior contraction "estimates how much prior uncertainty is reduced in the posterior estimation" (Schad, Betancourt and Vasisth, 2020). The contraction reveals very narrow posterior standard deviations with slightly lower contraction scores than we would want in the optimal case, however, we judge this as acceptable. 
+
+# Reaction times in correct trials
+
+In the preregistration, we noted the following population-level effects for the model of the reaction time variances: group, expectancy, phase and difficulty; as well as the group-level predictores subject and trials. 
+
+## Model setup
+
+```{r model_rt}
+
+# figure out slopes for subjects
+kable(head(df.pal %>% count(subID, expected)))
+kable(head(df.pal %>% count(subID, phase)))
+kable(head(df.pal %>% count(subID, difficulty)))
+kable(head(df.pal %>% count(subID, expected, phase)))
+kable(head(df.pal %>% count(subID, expected, difficulty)))
+kable(head(df.pal %>% count(subID, phase, difficulty)))
+kable(head(df.pal %>% count(subID, expected, phase, difficulty)))
+
+code = "PAL-rt"
+
+# set the formula
+f.pal = brms::bf(rt.cor ~ diagnosis * expected * phase * difficulty +
+                   (expected * phase * difficulty | subID) + (1 | trl))
+
+# informative priors based Lawson et al. and Schad, Betancourt & Vasishth (2019)
+priors = c(
+  prior(normal(6.0,   0.3),   class = Intercept),
+  prior(normal(0.0,   0.5),   class = sigma),
+  prior(normal(0,     0.1),   class = sd),
+  prior(lkj(2),               class = cor),
+  prior(normal(100, 100.0),   class = ndt), 
+  prior(normal(0.00,  0.04),  class = b)
+)
+
+```
+
+## Simulation-based calibration
+
+Since this model is so complex and the SBC takes ages to run, we only run 125 simulations - these already took almost two weeks to run. We ran them in a separate bash script in smaller batches. Both scripts, R and bash, are in the `helper` folder. 
+
+```{r sbc_rt1}
+
+if (!(file.exists(file.path(cache_dir, sprintf("df_res_%s.rds", code)))) | 
+    !(file.exists(file.path(cache_dir, sprintf("df_div_%s.rds", code))))) {
+  # read in the data
+  dat = readRDS(file = file.path(cache_dir, paste0("dat_", code, ".rds")))
+  
+  # combine the SBC files to one
+  ls.res = list.files(path = cache_dir, pattern = sprintf("^res_%s*", code))
+  for (i in 1:length(ls.res)) {
+    tmp = readRDS(file.path(cache_dir, ls.res[i]))
+    if (i == 1) {
+      res = tmp$result
+    } else {
+      res = bind_results(res, tmp$result)
+    }
+  }
+  # put in separate variables
+  df.results = res$stats
+  df.backend = res$backend_diagnostics
+  
+  # save the output
+  saveRDS(df.results, file.path(cache_dir, sprintf("df_res_%s.rds", code)))
+  saveRDS(df.backend, file.path(cache_dir, sprintf("df_div_%s.rds", code)))
+} else {
+  # load in the results of the SBC
+  df.results = readRDS(file.path(cache_dir, sprintf("df_res_%s.rds", code)))
+  df.backend = readRDS(file.path(cache_dir, sprintf("df_div_%s.rds", code)))
+  # read in the data
+  dat = readRDS(file = file.path(cache_dir, paste0("dat_", code, ".rds")))
+}
+
+```
+
+Again, we start by investigating the rhats and the number of divergent samples. This shows that `r nrow(df.results %>% group_by(sim_id) %>% summarise(rhat = max(rhat, na.rm = T)) %>% filter(rhat >= 1.05))` of `r nrow(df.backend)` simulations had at least one parameter that had an rhat of at least 1.05, and `r nrow(df.backend %>% filter(n_divergent > 0))` models had divergent samples. This suggests that this model performs well and we can continue with our checks by plotting the simulated values to perform prior predictive checks. 
+
+```{r sbc_rt2, fig.height=6}
+
+# create a matrix out of generated data
+dvfakemat = matrix(NA, nrow(dat[['generated']][[1]]), length(dat[['generated']])) 
+for (i in 1:length(dat[['generated']])) {
+  dvfakemat[,i] = dat[['generated']][[i]][[1]]
+}
+
+# compute one histogram per simulated data-set 
+dvfakematH = dvfakemat
+dvfakematH[dvfakematH > 2000] = 2000
+breaks = seq(0, max(dvfakematH, na.rm=T), length.out = 101) 
+binwidth = breaks[2] - breaks[1]
+histmat = matrix(NA, ncol = dim(dvfakemat)[2], nrow = length(breaks)-1) 
+for (i in 1:dim(dvfakemat)[2]) {
+  histmat[,i] = hist(dvfakematH[,i], breaks = breaks, plot = F)$counts 
+}
+# for each bin, compute quantiles across histograms 
+probs = seq(0.1, 0.9, 0.1) 
+quantmat = as.data.frame(matrix(NA, nrow=dim(histmat)[1], ncol = length(probs)))
+names(quantmat) = paste0("p", probs)
+for (i in 1:dim(histmat)[1]) {
+  quantmat[i,] = quantile(histmat[i,], p = probs)
+}
+quantmat$x = breaks[2:length(breaks)] - binwidth/2 # add bin mean 
+p1 = ggplot(data = quantmat, aes(x = x)) + 
+  geom_ribbon(aes(ymax = p0.9, ymin = p0.1), fill = c_light) + 
+  geom_ribbon(aes(ymax = p0.8, ymin = p0.2), fill = c_light_highlight) + 
+  geom_ribbon(aes(ymax = p0.7, ymin = p0.3), fill = c_mid) + 
+  geom_ribbon(aes(ymax = p0.6, ymin = p0.4), fill = c_mid_highlight) + 
+  geom_line(aes(y = p0.5), colour = c_dark, linewidth = 1) + 
+  labs(title = "Distribution of simulated values", y = "", x = "") +
+  theme_bw()
+
+tmpM = apply(dvfakemat, 2, mean) # mean 
+tmpSD = apply(dvfakemat, 2, sd) 
+p2 = ggplot() + 
+  stat_bin(aes(x = tmpM), fill = c_dark)  + 
+  labs(x = "Mean", title = "Means of simulated values") +
+  theme_bw()
+p3 = ggplot() + 
+  stat_bin(aes(x = tmpSD), fill = c_dark) + 
+  labs(x = "SD", title = "SDs of simulated values") +
+  theme_bw()
+p = ggarrange(p1, 
+  ggarrange(p2, p3, ncol = 2, labels = c("B", "C")), 
+  nrow = 2, labels = "A")
+annotate_figure(p, top = text_grob("Prior predictive checks", face = "bold", size = 14))
+
+```
+
+We are happy with the distribution of the simulated values. 
+
+```{r sbc_rt3, fig.height=8}
+
+# get simulation numbers with issues
+rank = max(df.results$max_rank)
+check = merge(df.results %>% 
+    group_by(sim_id) %>% 
+      summarise(
+        rhat = max(rhat, na.rm = T), 
+        mean_rank = mean(max_rank)
+        ) %>% 
+    filter(rhat >= 1.05 | mean_rank != rank), 
+  df.backend %>% filter(n_divergent > 0), all = T)
+
+# plot SBC with functions from the SBC package focusing on population-level parameters
+df.results.b = df.results %>% 
+  filter(substr(variable, 1, 2) == "b_") %>% 
+  filter(!(sim_id %in% check$sim_id))
+plot_ecdf_diff(df.results.b) + theme_bw() + theme(legend.position = "none") +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  ggtitle("Computational faithfulness: empirical cumulative distribution function")
+plot_rank_hist(df.results.b, bins = 20) + theme_bw() +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  ggtitle("Computational faithfulness: rank histograms")
+plot_sim_estimated(df.results.b, alpha = 0.5) + theme_bw() +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  ggtitle("Computational faithfulness: simulated and estimated values")
+plot_contraction(df.results.b, 
+                      prior_sd = setNames(
+                        c(as.numeric(
+                          gsub(".*, (.+)\\).*", "\\1", 
+                               priors[priors$class == "Intercept",]$prior)), 
+                          rep(0.04, times = (length(unique(df.results.b$variable))-1))), 
+                                          unique(df.results.b$variable))) +
+  theme_bw() +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 5)) +
+  ggtitle("Computational faithfulness: contraction and z-values")
+
+```
+
+While some of the ECDFs show discrepancies from the theoretical distribution, we judge all evaluated parameters to be acceptable.
+
+# Pupil sizes
+
+## Model setup
+
+```{r model_pup}
+
+# model formula
+f.pup = brms::bf(rel_pupil ~ diagnosis * expected + rts + 
+                   (1 | subID)
+                 )
+
+# set weakly informative priors
+priors = c(
+  prior(normal(0,    0.10),  class = Intercept),
+  prior(normal(0.15, 0.15),  class = sigma),
+  prior(normal(0.15, 0.15),  class = sd),
+  prior(normal(0,    0.05),  class = b)
+)
+
+kable(priors)
+
+code = "PAL-pup-td15"
+
+# extract one dataset from the rt.cor for this
+df = dat$generated[[24]] %>%
+  # add the pupil sizes
+  mutate(
+    rel_pupil = rnorm(nrow(dat$generated[[24]]), sd = 0.10),
+    rts       = rt.cor
+  ) %>% 
+  # remove some of the trials to account for data loss
+  filter(trl <= 252) %>%
+  select(rel_pupil, diagnosis, expected, subID, rts) %>%
+  mutate_if(is.character, as.factor)
+
+# print the contrasts
+contrasts(df$diagnosis) = contr.sum(2)
+contrasts(df$diagnosis)
+contrasts(df$expected)  = contr.sum(2)
+contrasts(df$expected)
+
+```
+
+## Simulation-based calibration
+
+```{r sbc_pup1}
+
+# check if the SBC already exists
+if (file.exists(file.path(cache_dir, sprintf("df_res_%s.rds", code)))) {
+  # load in the results of the SBC
+  df.results = readRDS(file.path(cache_dir, sprintf("df_res_%s.rds", code)))
+  df.backend = readRDS(file.path(cache_dir, sprintf("df_div_%s.rds", code)))
+  dat        = readRDS(file.path(cache_dir, sprintf("dat_%s.rds", code)))
+} else {
+  # stimulate some data
+  set.seed(2486)
+  gen = SBC_generator_brms(f.pup, data = df, prior = priors, 
+   thin = 50, warmup = 10000, refresh = 2000,
+   generate_lp = TRUE, init = 0.1)
+  if (file.exists(file.path(cache_dir, sprintf("dat_%s.rds", code)))) {
+    dat = readRDS(file.path(cache_dir, sprintf("dat_%s.rds", code)))
+  } else {
+    dat = generate_datasets(gen, nsim)
+    saveRDS(dat, file.path(cache_dir, sprintf("dat_%s.rds", code)))
+  }
+  # perform the SBC
+  bck = SBC_backend_brms_from_generator(gen, chains = 4, thin = 1,
+    warmup = 1500, iter = 6000,
+    init = 0.1, 
+    control = list(max_treedepth = 15))
+  res = compute_SBC(dat, bck, keep_fits = F,
+        cache_mode     = "results", 
+        cache_location = file.path(cache_dir, sprintf("res_%s", code)))
+  df.results = res$stats
+  df.backend = res$backend_diagnostics
+  saveRDS(df.results, file = file.path(cache_dir, 
+                                       paste0("df_res_", code, ".rds")))
+  saveRDS(df.backend, file = file.path(cache_dir, 
+                                       paste0("df_div_", code, ".rds")))
+}
+
+```
+
+
+Again, we start by investigating the rhats and the number of divergent samples. This shows that `r nrow(df.results %>% group_by(sim_id) %>% summarise(rhat = max(rhat, na.rm = T)) %>% filter(rhat >= 1.05))` of `r nrow(df.backend)` simulations had at least one parameter that had an rhat of at least 1.05, and `r nrow(df.backend %>% filter(n_divergent > 0))` models had divergent samples. This suggests some problems with this model. Let's investigate this a bit further. 
+
+```{r sbc_pup1_2}
+
+df.results %>% group_by(sim_id) %>% mutate(max_rhat = max(rhat, na.rm = T)) %>% filter(rhat == max_rhat & max_rhat >= 1.05) %>% group_by(variable) %>% count() %>% arrange(desc(n))
+
+```
+
+There are quite some large rhats for the Intercept and the diagnosis effect. We tried increasing the iterations, but it did not help. This might be connected to the maximum treedepth which is saturated in all of this simulations. We will continue for now but watch out for this in the final model. 
+
+```{r sbc_pup2, fig.height=6}
+
+# create a matrix out of generated data
+dvfakemat = matrix(NA, nrow(dat[['generated']][[1]]), length(dat[['generated']])) 
+for (i in 1:length(dat[['generated']])) {
+  dvfakemat[,i] = dat[['generated']][[i]][[1]]
+}
+
+# compute one histogram per simulated data-set 
+dvfakematH = dvfakemat
+dvfakematH[dvfakematH > 10] = 10
+dvfakematH[dvfakematH < -10] = -10
+breaks = seq(min(dvfakematH, na.rm=T), max(dvfakematH, na.rm=T), length.out = 101) 
+binwidth = breaks[2] - breaks[1]
+histmat = matrix(NA, ncol = dim(dvfakemat)[2], nrow = length(breaks)-1) 
+for (i in 1:dim(dvfakemat)[2]) {
+  histmat[,i] = hist(dvfakematH[,i], breaks = breaks, plot = F)$counts 
+}
+# for each bin, compute quantiles across histograms 
+probs = seq(0.1, 0.9, 0.1) 
+quantmat = as.data.frame(matrix(NA, nrow=dim(histmat)[1], ncol = length(probs)))
+names(quantmat) = paste0("p", probs)
+for (i in 1:dim(histmat)[1]) {
+  quantmat[i,] = quantile(histmat[i,], p = probs)
+}
+quantmat$x = breaks[2:length(breaks)] - binwidth/2 # add bin mean 
+p1 = ggplot(data = quantmat, aes(x = x)) + 
+  geom_ribbon(aes(ymax = p0.9, ymin = p0.1), fill = c_light) + 
+  geom_ribbon(aes(ymax = p0.8, ymin = p0.2), fill = c_light_highlight) + 
+  geom_ribbon(aes(ymax = p0.7, ymin = p0.3), fill = c_mid) + 
+  geom_ribbon(aes(ymax = p0.6, ymin = p0.4), fill = c_mid_highlight) + 
+  geom_line(aes(y = p0.5), colour = c_dark, linewidth = 1) + 
+  labs(title = "Distribution of simulated values", y = "", x = "") +
+  theme_bw()
+
+tmpM = apply(dvfakemat, 2, mean) # mean 
+tmpSD = apply(dvfakemat, 2, sd) 
+p2 = ggplot() + 
+  stat_bin(aes(x = tmpM), fill = c_dark)  + 
+  labs(x = "Mean", title = "Means of simulated values") +
+  theme_bw()
+p3 = ggplot() + 
+  stat_bin(aes(x = tmpSD), fill = c_dark) + 
+  labs(x = "SD", title = "SDs of simulated values") +
+  theme_bw()
+p = ggarrange(p1, 
+  ggarrange(p2, p3, ncol = 2, labels = c("B", "C")), 
+  nrow = 2, labels = "A")
+annotate_figure(p, top = text_grob("Prior predictive checks", face = "bold", size = 14))
+
+```
+
+There are quite some extreme values here that are unlikely. However, narrowing the priors also decreased the contraction. Thus, we stick with these rather wide priors. 
+
+```{r sbc_pup3, fig.height=4}
+
+# get simulation numbers with issues
+rank = max(df.results$max_rank)
+check = merge(df.results %>% 
+    group_by(sim_id) %>% 
+      summarise(
+        rhat = max(rhat, na.rm = T), 
+        mean_rank = mean(max_rank)
+        ) %>% 
+    filter(rhat >= 1.05 | mean_rank != rank), 
+  df.backend %>% filter(n_divergent > 0), all = T)
+
+# plot SBC with functions from the SBC package focusing on population-level parameters
+df.results.b = df.results %>% 
+  filter(substr(variable, 1, 2) == "b_") %>% 
+  filter(!(sim_id %in% check$sim_id))
+plot_ecdf_diff(df.results.b) + theme_bw() + theme(legend.position = "none") +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  ggtitle("Computational faithfulness: empirical cumulative distribution function")
+plot_rank_hist(df.results.b, bins = 20) + theme_bw() +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  ggtitle("Computational faithfulness: rank histograms")
+plot_sim_estimated(df.results.b, alpha = 0.5) + theme_bw() +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  ggtitle("Computational faithfulness: simulated and estimated values")
+plot_contraction(df.results.b, 
+                      prior_sd = setNames(
+                        c(as.numeric(
+                          gsub(".*, (.+)\\).*", "\\1", 
+                               priors[priors$class == "Intercept",]$prior)), 
+                          rep(0.04, times = (length(unique(df.results.b$variable))-1))), 
+                                          unique(df.results.b$variable))) +
+  theme_bw() +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 5)) +
+  ggtitle("Computational faithfulness: contraction and z-values")
+
+```
+
+Again, we have a few suboptimal values but no bias pattern. Thus, we judge this to be acceptable. 
+
+# HGF parameters
+
+## Model setup
+
+```{r model_hgf}
+
+# model formula
+f = brms::bf(p ~ diagnosis)
+
+# set weakly informative priors
+priors = c(
+  prior(normal(0, 0.50),  class = Intercept),
+  prior(normal(0, 0.50),  class = sigma),
+  prior(normal(0, 0.25),  class = b)
+)
+
+kable(priors)
+
+# runs faster, so let's do some more simulations
+nsim = 1000
+
+code = "PAL-hgf"
+
+# create dataframe
+df = df.pal %>%
+  select(subID, diagnosis) %>%
+  distinct() %>%
+  mutate(p = 1)
+
+# print the contrasts
+contrasts(df$diagnosis)
+
+```
+
+## Simulation-based calibration
+
+```{r sbc_hgf1}
+
+# check if the SBC already exists
+if (file.exists(file.path(cache_dir, sprintf("df_res_%s.rds", code)))) {
+  # load in the results of the SBC
+  df.results = readRDS(file.path(cache_dir, sprintf("df_res_%s.rds", code)))
+  df.backend = readRDS(file.path(cache_dir, sprintf("df_div_%s.rds", code)))
+  dat        = readRDS(file.path(cache_dir, sprintf("dat_%s.rds", code)))
+} else {
+  # stimulate some data
+  set.seed(2486)
+  gen = SBC_generator_brms(f, data = df, prior = priors, 
+   thin = 50, warmup = 10000, refresh = 2000,
+   generate_lp = TRUE, init = 0.1)
+  if (file.exists(file.path(cache_dir, sprintf("dat_%s.rds", code)))) {
+    dat = readRDS(file.path(cache_dir, sprintf("dat_%s.rds", code)))
+  } else {
+    dat = generate_datasets(gen, nsim)
+    saveRDS(dat, file.path(cache_dir, sprintf("dat_%s.rds", code)))
+  }
+  # perform the SBC
+  bck = SBC_backend_brms_from_generator(gen, chains = 4, thin = 1,
+    warmup = 1000, iter = 3000)
+  res = compute_SBC(dat, bck, keep_fits = F,
+        cache_mode     = "results", 
+        cache_location = file.path(cache_dir, sprintf("res_%s", code)))
+  df.results = res$stats
+  df.backend = res$backend_diagnostics
+  saveRDS(df.results, file = file.path(cache_dir, 
+                                       paste0("df_res_", code, ".rds")))
+  saveRDS(df.backend, file = file.path(cache_dir, 
+                                       paste0("df_div_", code, ".rds")))
+}
+
+```
+
+
+Again, we start by investigating the rhats and the number of divergent samples. This shows that `r nrow(df.results %>% group_by(sim_id) %>% summarise(rhat = max(rhat, na.rm = T)) %>% filter(rhat >= 1.05))` of `r nrow(df.backend)` simulations had at least one parameter that had an rhat of at least 1.05, and `r nrow(df.backend %>% filter(n_divergent > 0))` models had divergent samples. This suggests no problems with this model.
+
+```{r sbc_hgf2, fig.height=6}
+
+# create a matrix out of generated data
+dvfakemat = matrix(NA, nrow(dat[['generated']][[1]]), length(dat[['generated']])) 
+for (i in 1:length(dat[['generated']])) {
+  dvfakemat[,i] = dat[['generated']][[i]][[1]]
+}
+
+# compute one histogram per simulated data-set 
+dvfakematH = dvfakemat
+dvfakematH[dvfakematH > 10] = 10
+dvfakematH[dvfakematH < -10] = -10
+breaks = seq(min(dvfakematH, na.rm=T), max(dvfakematH, na.rm=T), length.out = 101) 
+binwidth = breaks[2] - breaks[1]
+histmat = matrix(NA, ncol = dim(dvfakemat)[2], nrow = length(breaks)-1) 
+for (i in 1:dim(dvfakemat)[2]) {
+  histmat[,i] = hist(dvfakematH[,i], breaks = breaks, plot = F)$counts 
+}
+# for each bin, compute quantiles across histograms 
+probs = seq(0.1, 0.9, 0.1) 
+quantmat = as.data.frame(matrix(NA, nrow=dim(histmat)[1], ncol = length(probs)))
+names(quantmat) = paste0("p", probs)
+for (i in 1:dim(histmat)[1]) {
+  quantmat[i,] = quantile(histmat[i,], p = probs)
+}
+quantmat$x = breaks[2:length(breaks)] - binwidth/2 # add bin mean 
+p1 = ggplot(data = quantmat, aes(x = x)) + 
+  geom_ribbon(aes(ymax = p0.9, ymin = p0.1), fill = c_light) + 
+  geom_ribbon(aes(ymax = p0.8, ymin = p0.2), fill = c_light_highlight) + 
+  geom_ribbon(aes(ymax = p0.7, ymin = p0.3), fill = c_mid) + 
+  geom_ribbon(aes(ymax = p0.6, ymin = p0.4), fill = c_mid_highlight) + 
+  geom_line(aes(y = p0.5), colour = c_dark, linewidth = 1) + 
+  labs(title = "Distribution of simulated values", y = "", x = "") +
+  theme_bw()
+
+tmpM = apply(dvfakemat, 2, mean) # mean 
+tmpSD = apply(dvfakemat, 2, sd) 
+p2 = ggplot() + 
+  stat_bin(aes(x = tmpM), fill = c_dark)  + 
+  labs(x = "Mean", title = "Means of simulated values") +
+  theme_bw()
+p3 = ggplot() + 
+  stat_bin(aes(x = tmpSD), fill = c_dark) + 
+  labs(x = "SD", title = "SDs of simulated values") +
+  theme_bw()
+p = ggarrange(p1, 
+  ggarrange(p2, p3, ncol = 2, labels = c("B", "C")), 
+  nrow = 2, labels = "A")
+annotate_figure(p, top = text_grob("Prior predictive checks", face = "bold", size = 14))
+
+```
+
+We are happy with the distribution of the simulated values. 
+
+```{r sbc_hgf3, fig.height=2}
+
+# get simulation numbers with issues
+rank = max(df.results$max_rank)
+check = merge(df.results %>% 
+    group_by(sim_id) %>% 
+      summarise(
+        rhat = max(rhat, na.rm = T), 
+        mean_rank = mean(max_rank)
+        ) %>% 
+    filter(rhat >= 1.05 | mean_rank != rank), 
+  df.backend %>% filter(n_divergent > 0), all = T)
+
+# plot SBC with functions from the SBC package focusing on population-level parameters
+df.results.b = df.results %>% 
+  filter(substr(variable, 1, 2) == "b_") %>% 
+  filter(!(sim_id %in% check$sim_id))
+plot_ecdf_diff(df.results.b) + theme_bw() + theme(legend.position = "none") +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  ggtitle("Computational faithfulness: empirical cumulative distribution function")
+plot_rank_hist(df.results.b, bins = 20) + theme_bw() +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  ggtitle("Computational faithfulness: rank histograms")
+plot_sim_estimated(df.results.b, alpha = 0.5) + theme_bw() +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  ggtitle("Computational faithfulness: simulated and estimated values")
+plot_contraction(df.results.b, 
+                      prior_sd = setNames(
+                        c(as.numeric(
+                          gsub(".*, (.+)\\).*", "\\1", 
+                               priors[priors$class == "Intercept",]$prior)), 
+                          rep(0.25, times = (length(unique(df.results.b$variable))-1))), 
+                                          unique(df.results.b$variable))) +
+  theme_bw() +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 5)) +
+  ggtitle("Computational faithfulness: contraction and z-values")
+
+```
+
+Again, some deviations but no bias pattern. 
+
+# HGF learning rate update
+
+## Model setup
+
+```{r model_lru}
+
+# model formula
+f = brms::bf(p ~ diagnosis * level * change + (level + change | subID))
+
+# set weakly informative priors
+priors = c(
+  prior(normal(-5,   2.00),  class = Intercept),
+  prior(normal( 0.50, 0.50), class = sigma),
+  prior(normal( 0,    1.00), class = b),
+  prior(normal( 0.50, 0.50), class = sd),
+  prior(lkj(2),              class = cor)
+)
+
+kable(priors)
+
+code = "PAL-lru"
+
+# create dataframe
+df = df.pal %>%
+  select(subID, diagnosis) %>%
+  distinct() %>%
+  mutate(p = 1)
+
+df = rbind(df %>% mutate(level = "2", change = "pre2vol"),
+           df %>% mutate(level = "2", change = "vol2post"),
+           df %>% mutate(level = "3", change = "pre2vol"),
+           df %>% mutate(level = "3", change = "vol2post")) %>%
+  mutate_if(is.character, as.factor)
+
+# print the contrasts
+contrasts(df$diagnosis) = contr.sum(2)
+contrasts(df$diagnosis)
+contrasts(df$level) = contr.sum(2)
+contrasts(df$level)
+contrasts(df$change) = contr.sum(2)
+contrasts(df$change)
+
+```
+
+## Simulation-based calibration
+
+```{r sbc_lru1}
+
+# check if the SBC already exists
+if (file.exists(file.path(cache_dir, sprintf("df_res_%s.rds", code)))) {
+  # load in the results of the SBC
+  df.results = readRDS(file.path(cache_dir, sprintf("df_res_%s.rds", code)))
+  df.backend = readRDS(file.path(cache_dir, sprintf("df_div_%s.rds", code)))
+  dat        = readRDS(file.path(cache_dir, sprintf("dat_%s.rds", code)))
+} else {
+  # stimulate some data
+  set.seed(2486)
+  gen = SBC_generator_brms(f, data = df, prior = priors, family = lognormal,
+   thin = 50, warmup = 10000, refresh = 2000,
+   generate_lp = TRUE, init = 0.1)
+  if (file.exists(file.path(cache_dir, sprintf("dat_%s.rds", code)))) {
+    dat = readRDS(file.path(cache_dir, sprintf("dat_%s.rds", code)))
+  } else {
+    dat = generate_datasets(gen, nsim)
+    saveRDS(dat, file.path(cache_dir, sprintf("dat_%s.rds", code)))
+  }
+  # perform the SBC
+  bck = SBC_backend_brms_from_generator(gen, chains = 4, thin = 1,
+    warmup = 1000, iter = 3000)
+  res = compute_SBC(dat, bck, keep_fits = F,
+        cache_mode     = "results", 
+        cache_location = file.path(cache_dir, sprintf("res_%s", code)))
+  df.results = res$stats
+  df.backend = res$backend_diagnostics
+  saveRDS(df.results, file = file.path(cache_dir, 
+                                       paste0("df_res_", code, ".rds")))
+  saveRDS(df.backend, file = file.path(cache_dir, 
+                                       paste0("df_div_", code, ".rds")))
+}
+
+```
+
+
+Again, we start by investigating the rhats and the number of divergent samples. This shows that `r nrow(df.results %>% group_by(sim_id) %>% summarise(rhat = max(rhat, na.rm = T)) %>% filter(rhat >= 1.05))` of `r nrow(df.backend)` simulations had at least one parameter that had an rhat of at least 1.05, and `r nrow(df.backend %>% filter(n_divergent > 0))` models had divergent samples. This suggests this model performs fine.
+
+```{r sbc_lru2, fig.height=6}
+
+# create a matrix out of generated data
+dvfakemat = matrix(NA, nrow(dat[['generated']][[1]]), length(dat[['generated']])) 
+for (i in 1:length(dat[['generated']])) {
+  dvfakemat[,i] = dat[['generated']][[i]][[1]]
+}
+
+# compute one histogram per simulated data-set 
+dvfakematH = dvfakemat
+dvfakematH[dvfakematH > 1] = 1
+#dvfakematH[dvfakematH < -10] = -10
+breaks = seq(min(dvfakematH, na.rm=T), max(dvfakematH, na.rm=T), length.out = 101) 
+binwidth = breaks[2] - breaks[1]
+histmat = matrix(NA, ncol = dim(dvfakemat)[2], nrow = length(breaks)-1) 
+for (i in 1:dim(dvfakemat)[2]) {
+  histmat[,i] = hist(dvfakematH[,i], breaks = breaks, plot = F)$counts 
+}
+# for each bin, compute quantiles across histograms 
+probs = seq(0.1, 0.9, 0.1) 
+quantmat = as.data.frame(matrix(NA, nrow=dim(histmat)[1], ncol = length(probs)))
+names(quantmat) = paste0("p", probs)
+for (i in 1:dim(histmat)[1]) {
+  quantmat[i,] = quantile(histmat[i,], p = probs)
+}
+quantmat$x = breaks[2:length(breaks)] - binwidth/2 # add bin mean 
+p1 = ggplot(data = quantmat, aes(x = x)) + 
+  geom_ribbon(aes(ymax = p0.9, ymin = p0.1), fill = c_light) + 
+  geom_ribbon(aes(ymax = p0.8, ymin = p0.2), fill = c_light_highlight) + 
+  geom_ribbon(aes(ymax = p0.7, ymin = p0.3), fill = c_mid) + 
+  geom_ribbon(aes(ymax = p0.6, ymin = p0.4), fill = c_mid_highlight) + 
+  geom_line(aes(y = p0.5), colour = c_dark, linewidth = 1) + 
+  labs(title = "Distribution of simulated values", y = "", x = "") +
+  theme_bw()
+
+tmpM = apply(dvfakemat, 2, mean) # mean 
+tmpSD = apply(dvfakemat, 2, sd) 
+p2 = ggplot() + 
+  stat_bin(aes(x = tmpM), fill = c_dark)  + 
+  labs(x = "Mean", title = "Means of simulated values") +
+  theme_bw()
+p3 = ggplot() + 
+  stat_bin(aes(x = tmpSD), fill = c_dark) + 
+  labs(x = "SD", title = "SDs of simulated values") +
+  theme_bw()
+p = ggarrange(p1, 
+  ggarrange(p2, p3, ncol = 2, labels = c("B", "C")), 
+  nrow = 2, labels = "A")
+annotate_figure(p, top = text_grob("Prior predictive checks", face = "bold", size = 14))
+
+```
+
+Again, some extreme values but we stick with the wider priors. 
+
+```{r sbc_lru3, fig.height=6}
+
+# get simulation numbers with issues
+rank = max(df.results$max_rank)
+check = merge(df.results %>% 
+    group_by(sim_id) %>% 
+      summarise(
+        rhat = max(rhat, na.rm = T), 
+        mean_rank = mean(max_rank)
+        ) %>% 
+    filter(rhat >= 1.05 | mean_rank != rank), 
+  df.backend %>% filter(n_divergent > 0), all = T)
+
+# plot SBC with functions from the SBC package focusing on population-level parameters
+df.results.b = df.results %>% 
+  filter(substr(variable, 1, 2) == "b_") %>% 
+  filter(!(sim_id %in% check$sim_id))
+plot_ecdf_diff(df.results.b) + theme_bw() + theme(legend.position = "none") +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  ggtitle("Computational faithfulness: empirical cumulative distribution function")
+plot_rank_hist(df.results.b, bins = 20) + theme_bw() +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  ggtitle("Computational faithfulness: rank histograms")
+plot_sim_estimated(df.results.b, alpha = 0.5) + theme_bw() +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  ggtitle("Computational faithfulness: simulated and estimated values")
+plot_contraction(df.results.b, 
+                      prior_sd = setNames(
+                        c(as.numeric(
+                          gsub(".*, (.+)\\).*", "\\1", 
+                               priors[priors$class == "Intercept",]$prior)), 
+                          rep(1, times = (length(unique(df.results.b$variable))-1))), 
+                                          unique(df.results.b$variable))) +
+  theme_bw() +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 5)) +
+  ggtitle("Computational faithfulness: contraction and z-values")
+
+```
+
+We judge this to be acceptable. 
+
+# HGF Bernoulli
+
+## Model setup
+
+```{r model_ber}
+
+# model formula
+f = brms::bf(p ~ s1 + s1 + s3 + s4 + s5 + s6 + s7 )
+
+# set weakly informative priors
+priors = c(
+  prior(normal(0.5, 0.50),  class = Intercept),
+  prior(normal(0,   1.00), class = b)
+)
+
+kable(priors)
+
+code = "PAL-ber"
+
+# create dataframe
+df = df.pal %>%
+  select(subID, diagnosis) %>%
+  distinct() %>%
+  mutate(p  = if_else(diagnosis == "A", 1, 0),
+         s1 = rnorm(length(unique(df.pal$subID))),
+         s2 = rnorm(length(unique(df.pal$subID))),
+         s3 = rnorm(length(unique(df.pal$subID))),
+         s4 = rnorm(length(unique(df.pal$subID))),
+         s5 = rnorm(length(unique(df.pal$subID))),
+         s6 = rnorm(length(unique(df.pal$subID))),
+         s7 = rnorm(length(unique(df.pal$subID)))
+         )
+
+```
+
+## Simulation-based calibration
+
+```{r sbc_ber1}
+
+# check if the SBC already exists
+if (file.exists(file.path(cache_dir, sprintf("df_res_%s.rds", code)))) {
+  # load in the results of the SBC
+  df.results = readRDS(file.path(cache_dir, sprintf("df_res_%s.rds", code)))
+  df.backend = readRDS(file.path(cache_dir, sprintf("df_div_%s.rds", code)))
+  dat        = readRDS(file.path(cache_dir, sprintf("dat_%s.rds", code)))
+} else {
+  # stimulate some data
+  set.seed(2486)
+  gen = SBC_generator_brms(f, data = df, prior = priors, family = bernoulli,
+   thin = 50, warmup = 10000, refresh = 2000,
+   generate_lp = TRUE, init = 0.1)
+  if (file.exists(file.path(cache_dir, sprintf("dat_%s.rds", code)))) {
+    dat = readRDS(file.path(cache_dir, sprintf("dat_%s.rds", code)))
+  } else {
+    dat = generate_datasets(gen, nsim)
+    saveRDS(dat, file.path(cache_dir, sprintf("dat_%s.rds", code)))
+  }
+  # perform the SBC
+  bck = SBC_backend_brms_from_generator(gen, chains = 4, thin = 1,
+    warmup = 1000, iter = 3000)
+  res = compute_SBC(dat, bck, keep_fits = F,
+        cache_mode     = "results", 
+        cache_location = file.path(cache_dir, sprintf("res_%s", code)))
+  df.results = res$stats
+  df.backend = res$backend_diagnostics
+  saveRDS(df.results, file = file.path(cache_dir, 
+                                       paste0("df_res_", code, ".rds")))
+  saveRDS(df.backend, file = file.path(cache_dir, 
+                                       paste0("df_div_", code, ".rds")))
+}
+
+```
+
+
+Again, we start by investigating the rhats and the number of divergent samples. This shows that `r nrow(df.results %>% group_by(sim_id) %>% summarise(rhat = max(rhat, na.rm = T)) %>% filter(rhat >= 1.05))` of `r nrow(df.backend)` simulations had at least one parameter that had an rhat of at least 1.05, and `r nrow(df.backend %>% filter(n_divergent > 0))` models had divergent samples. This suggests this model performs fine.
+
+```{r sbc_ber2, fig.height=6}
+
+# create a matrix out of generated data
+dvfakemat = matrix(NA, nrow(dat[['generated']][[1]]), length(dat[['generated']])) 
+for (i in 1:length(dat[['generated']])) {
+  dvfakemat[,i] = dat[['generated']][[i]][[1]]
+}
+
+# compute one histogram per simulated data-set 
+options = c(0, 1)
+histmat = matrix(NA, ncol = dim(dvfakemat)[2], length(options)) 
+for (i in 1:dim(dvfakemat)[2]) {
+  for (j in 1:length(options))
+  {
+    histmat[j,i] = sum(dvfakemat[,i] == options[j])
+  }
+}
+# for each bin, compute quantiles across histograms 
+probs = seq(0.1, 0.9, 0.1) 
+quantmat= as.data.frame(matrix(NA, nrow=dim(histmat)[1], ncol = length(probs)))
+names(quantmat) = paste0("p", probs)
+for (i in 1:dim(histmat)[1]) {
+  quantmat[i,] = quantile(histmat[i,], p = probs)
+}
+quantmat$x = c("group 0", "group 1")
+p1 = ggplot(data = quantmat, aes(x = x)) + 
+  geom_bar(aes(y = p0.9), fill = c_light, stat = "identity") + 
+  geom_bar(aes(y = p0.8), fill = c_light_highlight, stat = "identity") + 
+  geom_bar(aes(y = p0.7), fill = c_mid, stat = "identity") + 
+  geom_bar(aes(y = p0.6), fill = c_mid_highlight, stat = "identity") + 
+  geom_bar(aes(y = p0.5), fill = c_dark, stat = "identity") + 
+  labs(title = "Prior predictive distribution", y = "", x = "") +
+  theme_bw()
+
+tmpM = apply(dvfakemat, 2, mean) # mean 
+tmpSD = apply(dvfakemat, 2, sd) 
+p2 = ggplot() + 
+  stat_bin(aes(x = tmpM), fill = c_dark)  + 
+  labs(x = "Mean", title = "Means of simulated values") +
+  theme_bw()
+p3 = ggplot() + 
+  stat_bin(aes(x = tmpSD), fill = c_dark) + 
+  labs(x = "SD", title = "SDs of simulated values") +
+  theme_bw()
+p = ggarrange(p1, 
+  ggarrange(p2, p3, ncol = 2, labels = c("B", "C")), 
+  nrow = 2, labels = "A")
+annotate_figure(p, top = text_grob("Prior predictive checks", face = "bold", size = 14))
+
+```
+
+There is a slight bias for one group, but we judge this to be fine. 
+
+```{r sbc_ber3, fig.height=6}
+
+# get simulation numbers with issues
+rank = max(df.results$max_rank)
+check = merge(df.results %>% 
+    group_by(sim_id) %>% 
+      summarise(
+        rhat = max(rhat, na.rm = T), 
+        mean_rank = mean(max_rank)
+        ) %>% 
+    filter(rhat >= 1.05 | mean_rank != rank), 
+  df.backend %>% filter(n_divergent > 0), all = T)
+
+# plot SBC with functions from the SBC package focusing on population-level parameters
+df.results.b = df.results %>% 
+  filter(substr(variable, 1, 2) == "b_") %>% 
+  filter(!(sim_id %in% check$sim_id))
+plot_ecdf_diff(df.results.b) + theme_bw() + theme(legend.position = "none") +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  ggtitle("Computational faithfulness: empirical cumulative distribution function")
+plot_rank_hist(df.results.b, bins = 20) + theme_bw() +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  ggtitle("Computational faithfulness: rank histograms")
+plot_sim_estimated(df.results.b, alpha = 0.5) + theme_bw() +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  ggtitle("Computational faithfulness: simulated and estimated values")
+plot_contraction(df.results.b, 
+                      prior_sd = setNames(
+                        c(as.numeric(
+                          gsub(".*, (.+)\\).*", "\\1", 
+                               priors[priors$class == "Intercept",]$prior)), 
+                          rep(1, times = (length(unique(df.results.b$variable))-1))), 
+                                          unique(df.results.b$variable))) +
+  theme_bw() +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 5)) +
+  ggtitle("Computational faithfulness: contraction and z-values")
+
+```
+
+We judge this to be acceptable. 
+
+# DDM drift rate
+
+## Model setup
+
+```{r model_ddm}
+
+# model formula
+f = brms::bf(p ~ diagnosis * phase  + (1 | subID) )
+
+# set weakly informative priors
+priors = c(
+  prior(normal( 2, 1.50),  class = Intercept),
+  prior(normal( 0, 0.50), class = sigma),
+  prior(normal( 0, 0.50), class = b),
+  prior(normal( 0, 0.50), class = sd)
+)
+
+kable(priors)
+
+code = "PAL-ddm"
+
+# create dataframe
+df = df.pal %>%
+  select(subID, diagnosis, phase) %>%
+  distinct() %>%
+  mutate(p = 1)
+
+# print the contrasts
+contrasts(df$diagnosis) = contr.sum(2)
+contrasts(df$diagnosis)
+contrasts(df$phase) = contr.sum(3)
+contrasts(df$phase)
+
+```
+
+## Simulation-based calibration
+
+```{r sbc_ddm1}
+
+# check if the SBC already exists
+if (file.exists(file.path(cache_dir, sprintf("df_res_%s.rds", code)))) {
+  # load in the results of the SBC
+  df.results = readRDS(file.path(cache_dir, sprintf("df_res_%s.rds", code)))
+  df.backend = readRDS(file.path(cache_dir, sprintf("df_div_%s.rds", code)))
+  dat        = readRDS(file.path(cache_dir, sprintf("dat_%s.rds", code)))
+} else {
+  # stimulate some data
+  set.seed(2486)
+  gen = SBC_generator_brms(f, data = df, prior = priors, 
+   thin = 50, warmup = 10000, refresh = 2000,
+   generate_lp = TRUE, init = 0.1)
+  if (file.exists(file.path(cache_dir, sprintf("dat_%s.rds", code)))) {
+    dat = readRDS(file.path(cache_dir, sprintf("dat_%s.rds", code)))
+  } else {
+    dat = generate_datasets(gen, nsim)
+    saveRDS(dat, file.path(cache_dir, sprintf("dat_%s.rds", code)))
+  }
+  # perform the SBC
+  bck = SBC_backend_brms_from_generator(gen, chains = 4, thin = 1,
+    warmup = 1000, iter = 3000)
+  res = compute_SBC(dat, bck, keep_fits = F,
+        cache_mode     = "results", 
+        cache_location = file.path(cache_dir, sprintf("res_%s", code)))
+  df.results = res$stats
+  df.backend = res$backend_diagnostics
+  saveRDS(df.results, file = file.path(cache_dir, 
+                                       paste0("df_res_", code, ".rds")))
+  saveRDS(df.backend, file = file.path(cache_dir, 
+                                       paste0("df_div_", code, ".rds")))
+}
+
+```
+
+
+Again, we start by investigating the rhats and the number of divergent samples. This shows that `r nrow(df.results %>% group_by(sim_id) %>% summarise(rhat = max(rhat, na.rm = T)) %>% filter(rhat >= 1.05))` of `r nrow(df.backend)` simulations had at least one parameter that had an rhat of at least 1.05, but `r nrow(df.backend %>% filter(n_divergent > 0))` models had divergent samples. We will keep this in mind for the final model.
+
+```{r sbc_ddm2, fig.height=8}
+
+# create a matrix out of generated data
+dvfakemat = matrix(NA, nrow(dat[['generated']][[1]]), length(dat[['generated']])) 
+for (i in 1:length(dat[['generated']])) {
+  dvfakemat[,i] = dat[['generated']][[i]][[1]]
+}
+
+# compute one histogram per simulated data-set 
+dvfakematH = dvfakemat
+#dvfakematH[dvfakematH > 10] = 10
+#dvfakematH[dvfakematH < -10] = -10
+breaks = seq(min(dvfakematH, na.rm=T), max(dvfakematH, na.rm=T), length.out = 101) 
+binwidth = breaks[2] - breaks[1]
+histmat = matrix(NA, ncol = dim(dvfakemat)[2], nrow = length(breaks)-1) 
+for (i in 1:dim(dvfakemat)[2]) {
+  histmat[,i] = hist(dvfakematH[,i], breaks = breaks, plot = F)$counts 
+}
+# for each bin, compute quantiles across histograms 
+probs = seq(0.1, 0.9, 0.1) 
+quantmat = as.data.frame(matrix(NA, nrow=dim(histmat)[1], ncol = length(probs)))
+names(quantmat) = paste0("p", probs)
+for (i in 1:dim(histmat)[1]) {
+  quantmat[i,] = quantile(histmat[i,], p = probs)
+}
+quantmat$x = breaks[2:length(breaks)] - binwidth/2 # add bin mean 
+p1 = ggplot(data = quantmat, aes(x = x)) + 
+  geom_ribbon(aes(ymax = p0.9, ymin = p0.1), fill = c_light) + 
+  geom_ribbon(aes(ymax = p0.8, ymin = p0.2), fill = c_light_highlight) + 
+  geom_ribbon(aes(ymax = p0.7, ymin = p0.3), fill = c_mid) + 
+  geom_ribbon(aes(ymax = p0.6, ymin = p0.4), fill = c_mid_highlight) + 
+  geom_line(aes(y = p0.5), colour = c_dark, linewidth = 1) + 
+  labs(title = "Distribution of simulated values", y = "", x = "") +
+  theme_bw()
+
+tmpM = apply(dvfakemat, 2, mean) # mean 
+tmpSD = apply(dvfakemat, 2, sd) 
+p2 = ggplot() + 
+  stat_bin(aes(x = tmpM), fill = c_dark)  + 
+  labs(x = "Mean", title = "Means of simulated values") +
+  theme_bw()
+p3 = ggplot() + 
+  stat_bin(aes(x = tmpSD), fill = c_dark) + 
+  labs(x = "SD", title = "SDs of simulated values") +
+  theme_bw()
+p = ggarrange(p1, 
+  ggarrange(p2, p3, ncol = 2, labels = c("B", "C")), 
+  nrow = 2, labels = "A")
+annotate_figure(p, top = text_grob("Prior predictive checks", face = "bold", size = 14))
+
+```
+
+The distributions look good. 
+
+```{r sbc_ddm3, fig.height=4}
+
+# get simulation numbers with issues
+rank = max(df.results$max_rank)
+check = merge(df.results %>% 
+    group_by(sim_id) %>% 
+      summarise(
+        rhat = max(rhat, na.rm = T), 
+        mean_rank = mean(max_rank)
+        ) %>% 
+    filter(rhat >= 1.05 | mean_rank != rank), 
+  df.backend %>% filter(n_divergent > 0), all = T)
+
+# plot SBC with functions from the SBC package focusing on population-level parameters
+df.results.b = df.results %>% 
+  filter(substr(variable, 1, 2) == "b_") %>% 
+  filter(!(sim_id %in% check$sim_id))
+plot_ecdf_diff(df.results.b) + theme_bw() + theme(legend.position = "none") +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  ggtitle("Computational faithfulness: empirical cumulative distribution function")
+plot_rank_hist(df.results.b, bins = 20) + theme_bw() +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  ggtitle("Computational faithfulness: rank histograms")
+plot_sim_estimated(df.results.b, alpha = 0.5) + theme_bw() +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  ggtitle("Computational faithfulness: simulated and estimated values")
+plot_contraction(df.results.b, 
+                      prior_sd = setNames(
+                        c(as.numeric(
+                          gsub(".*, (.+)\\).*", "\\1", 
+                               priors[priors$class == "Intercept",]$prior)), 
+                          rep(0.5, times = (length(unique(df.results.b$variable))-1))), 
+                                          unique(df.results.b$variable))) +
+  theme_bw() +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 5)) +
+  ggtitle("Computational faithfulness: contraction and z-values")
+
+```
+
+Slight deviations, but no clear bias pattern, thus, fine. 
