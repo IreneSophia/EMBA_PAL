@@ -1,9 +1,9 @@
 #!/bin/bash
 
-while ! [ -f "/home/emba/Documents/EMBA/EMBA_PAL_scripts/_brms_SBC_cache/res_PAL-pup_10.rds" ];
+while ! [ -f "/home/emba/Documents/EMBA/EMBA_PAL_scripts/_brms_SBC_cache/res_PAL-rt_10.rds" ];
 do 
 
-	Rscript brms-analyses_PAL-pup_SBC.R
+	Rscript brms-analyses_PAL_SBC.R
 	
 done
 

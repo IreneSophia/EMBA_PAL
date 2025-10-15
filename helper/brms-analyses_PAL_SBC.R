@@ -13,7 +13,7 @@ library(future)
 plan(multisession)
 
 # set working directory
-setwd("..")
+setwd("/home/emba/Documents/EMBA/EMBA_PAL_scripts")
 
 # setup caching of results
 cache_dir = "./_brms_SBC_cache"
@@ -21,16 +21,33 @@ if(!dir.exists(cache_dir)) {
   dir.create(cache_dir)
 }
 
-# load data
-load("PAL_data.RData")
-df.pal = df.pal %>%
-  mutate_if(is.character, as.factor) %>%
-  filter(expected != "neutral") %>% droplevels()
+# load the trial order
+df.trl = read_csv('data/PAL_scheme.csv', show_col_types = F) %>%
+  select(trl, emo, tone, difficulty, phase, expected)
 
-nsim = 500
+# create the data
+df.pal = data.frame()
+groups = c("A", "B")
+nos    = 22 # number of subjects per group
+for (g in groups) {
+  for (i in 1:nos) {
+    df.pal = rbind(df.pal, 
+                   df.trl %>% mutate(subID = sprintf("%s%02d", g, i),
+                                     diagnosis = g))
+  }
+}
+
+# add bogus rts
+df.pal = df.pal %>% mutate(rt.cor = 1)
+
+# drop the neutral condition for the analysis
+df.pal = df.pal %>%
+  filter(expected != "neutral") %>% droplevels() %>%
+  mutate_if(is.character, as.factor) %>%
+  ungroup()
 
 # set and print the contrasts
-contrasts(df.pal$diagnosis) = contr.sum(3)
+contrasts(df.pal$diagnosis) = contr.sum(2)
 contrasts(df.pal$diagnosis)
 contrasts(df.pal$expected) = contr.sum(2)
 contrasts(df.pal$expected)
@@ -39,33 +56,22 @@ contrasts(df.pal$phase)
 contrasts(df.pal$difficulty) = contr.sum(3)
 contrasts(df.pal$difficulty)
 
+nsim = 250
+
 code = "PAL-rt"
 
 # set the formula
 f.pal = brms::bf(rt.cor ~ diagnosis * expected * phase * difficulty +
-                   (expected + phase + difficulty +
-                      expected:phase + difficulty:phase + expected:difficulty | subID))
+                   (expected * phase * difficulty | subID) + 
+                   (diagnosis | trl))
 
-# set informed priors based on previous results
+# informative priors based Lawson et al. and Schad, Betancourt & Vasishth (2019)
 priors = c(
-  # informative priors based Lawson et al. and Schad, Betancourt & Vasishth (2019)
   prior(normal(6.0,   0.3),   class = Intercept),
   prior(normal(0.0,   0.5),   class = sigma),
   prior(normal(0,     0.1),   class = sd),
   prior(lkj(2),              class = cor),
   prior(normal(100, 100.0),   class = ndt),
-  # ASD slower overall (Lawson et al., 2017)
-  prior(normal(0.02,  0.04),  class = b, coef = diagnosis2), 
-  # faster for expected trials (Lawson et al., 2017)
-  prior(normal(-0.02, 0.04),  class = b, coef = expected1), # expected
-  # faster on easy trials (Lawson et al., 2017)
-  prior(normal(-0.02, 0.04),  class = b, coef = difficulty1), # easy
-  # larger effect of phases in ASD (Shi et al., 2022)
-  prior(normal(0.02,  0.04),  class = b, coef = diagnosis2:phase2),
-  prior(normal(0.02,  0.04),  class = b, coef = diagnosis2:phase1),
-  # smaller effect of expected in ASD (Lawson et al., 2017)
-  prior(normal(0.02,  0.04),  class = b, coef = diagnosis2:expected1), 
-  # all the other interactions
   prior(normal(0.00,  0.04),  class = b)
 )
 
@@ -94,14 +100,16 @@ if (is_empty(ls.files)) {
   i = max(as.numeric(gsub(sprintf("res_%s_(.+).rds", code), "\\1", ls.files))) + 1
 }
 set.seed(2468+i)
-m = 25
+m = 50
 
 # perform the SBC 
-write(sprintf("%d: Starting %i simulations (total: %d).", i, m, warm+iter), file.path("/logfiles", "log_PAL.txt"), append = TRUE)
+write(sprintf("%d: Starting %i simulations (total: %d).", i, m, warm+iter), 
+      file.path("/home/emba/pCloudDrive/LOGFILES", "log_PAL.txt"), append = TRUE)
 dat_part = SBC_datasets(dat$variables[((i-1)*m + 1):(i*m),],
                         dat$generated[((i-1)*m + 1):(i*m)])
-res = compute_SBC(dat_part, bck,
+res = compute_SBC(dat_part, bck, keep_fits = F,
                   cache_mode = "results",
                   cache_location = file.path(cache_dir, sprintf("res_%s_%02d", code, i)))
-write("DONE.", file.path("/logfiles/", "log_PAL.txt"), append = TRUE)
+write("DONE.", 
+      file.path("/home/emba/pCloudDrive/LOGFILES", "log_PAL.txt"), append = TRUE)
 
