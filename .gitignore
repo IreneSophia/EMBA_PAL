@@ -4,3 +4,5 @@
 /prepro/__pycache__
 /EMBA_PAL-ADHD/*
 /.DS_Store
+/EMBA_PAL-ASD/_brms_models/m_pal.rds
+*.DS_Store

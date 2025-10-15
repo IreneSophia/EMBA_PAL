@@ -21,6 +21,8 @@ We also share the results of the simulation-based calibrations - these were run 
 
 If you need access to other data associated with this project or want to use the stimuli / paradigm, please contact the project lead (Irene Sophia Plank, 10planki@gmail.com). 
 
+Some of the results files are shared on OSF because they are too large for GitHub, please download them from [here](osf.io/krp4s). Put the `m_pal.rds` from the subprojects in the respective `_brms_models` folder. 
+
 ### Versions and installation
 
 Each pdf file contains an output of the versions used to run that particular script. It is important to install all packages mentioned in the file before running a specific analysis file. Not all packages can be installed with `install.packages`, please consult the respective installation pages of the packages for more information. If the models are rerun, ensure a valid cmdstanr installation. 
