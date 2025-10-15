@@ -46,6 +46,7 @@ for m = midx
         % extract subject info
         tbl.subID(i) = est(i).subID;
         tbl.diagnosis{i} = est(i).group;
+        tbl.sd(i)    = std(est(i).y, "omitnan");
         % extract model assessment
         tbl.LME(i)   = est(i).optim.LME; % more is better
         tbl.BIC(i)   = est(i).optim.BIC; % less is better
@@ -98,6 +99,7 @@ for m = midx
         ltbl.alpha1(idx)    = est(i).traj.wt(:,1);
         ltbl.alpha2(idx)    = est(i).traj.wt(:,2);
         ltbl.alpha3(idx)    = est(i).traj.wt(:,3);
+        ltbl.yhat(idx)      = est(i).optim.yhat;
     
     end
     

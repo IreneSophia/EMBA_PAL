@@ -25,12 +25,15 @@ function [model] = computeEmpiricalPriors(modSpace, nSubs, subDir, saveDir)
 % Structure to store intermediate data
 model = struct();
 
+% Get a list of all the subjects in this folder
+ls_subs = dir((fullfile(saveDir, subDir, 'sub*')));
+
 % Aggregate estimated parameter values of all subjects for each model 
 for n = 1:nSubs
     for m = 1:size(modSpace, 2)
         fprintf('current iteration: n=%1.0f, m=%1.0f \n', n,m);
-        est = load(fullfile(saveDir, ...
-            subDir, ['sub', num2str(n)], ['est_mod_', convertStringsToChars(modSpace(m).name)]));
+        est = load(fullfile(ls_subs(n).folder, ls_subs(n).name, ...
+            ['est_mod_', convertStringsToChars(modSpace(m).name)]));
         
         % prc model
         for j = 1:size(modSpace(m).prc_idx,2)

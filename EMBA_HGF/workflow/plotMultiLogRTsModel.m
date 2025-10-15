@@ -1,4 +1,4 @@
-function [] = plotLogRTsModel(modSpace, subDir, saveDir, nSubs, midx)
+function [] = plotMultiLogRTsModel(modSpace, subDir, saveDir, subs, midx, nSim, lines)
 % Plot logRT fits: 'logRT_model'
 % Based on hessetal_spirl_analysis/job_runner_plot_results.m, lines
 % 311-405
@@ -13,9 +13,13 @@ function [] = plotLogRTsModel(modSpace, subDir, saveDir, nSubs, midx)
 %
 %   saveDir             char array          base output directory
 %
-%   nSubs               double              no of subs to plot, 0 for all
+%   subs                double vector       which subjects to plot
 %
 %   midx                double vector       model indices, [] for all
+%
+%   nSim                double              number of sims per subject
+%
+%   lines               boolean             plot sim as SD bands or lines
 %-----------------------------------------------------------------------------
 %
 % Copyright (C) 2024 Anna Yurova, Irene Sophia Plank, LMU University Hospital;
@@ -45,12 +49,17 @@ elseif strcmp(subDir, 'sim')
     subDir = 'sim_rec';
 end
 nTrials = numel(res.est(1,1).y);
-if nSubs == 0
-    nSubs   = size(res.est, 2);
-end
- 
 
-%% PILOT: plot rt trajectories & fits (single-sub)
+nSubs = length(subs);
+
+% create a vector of the subIDs
+subIDs = nan(length(res.est),2);
+for i = 1:length(res.est)
+    subIDs(i,:) = [i res.est(1,i).subID];
+end
+
+
+%% Plot rt trajectories & fits (single-sub)
 
 nr_width  = 1;
 nr_height = 4;
@@ -61,10 +70,23 @@ for m = midx
         figure
         set(gcf, 'Units', 'Normalized', 'OuterPosition', [0 0 1 1]);
         for i = 1:nr_total
-            sub = i + (p-1)*nr_total;
-            if sub > nSubs
+            x = i + (p-1)*nr_total;
+            if x > nSubs
                 continue
             end
+            % get the subject index
+            sub = subIDs(subIDs(:,2) == subs(x),1);
+            % simulate some data
+            simDat = nan(nSim, nTrials);
+            for j = 1:nSim
+                test = tapas_simModel(res.est(m, sub).u,...
+                    char(res.est(m, sub).c_prc.prc_fun),...
+                    res.est(m, sub).p_prc.p,...
+                    char(res.est(m, sub).c_obs.obs_fun),...
+                    res.est(m, sub).p_obs.p);
+                simDat(j,:) = test.y;
+            end
+            % start plotting
             subplot(nr_height,nr_width,i)
             % figure out subject-specific ylims
             lim_lower = floor((min(res.est(m,sub).y)-0.2)*2)/2;
@@ -75,7 +97,7 @@ for m = midx
             input(input == 0) = lim_lower + 0.2;
             % plot the volatile phase
             fill([73 264 264 73], [lim_lower lim_lower lim_upper lim_upper], ...
-                     'b', 'EdgeAlpha', 0, 'FaceAlpha', 0.15);
+                     'y', 'EdgeAlpha', 0, 'FaceAlpha', 0.15);
             hold on
             % plot the prevolatile phase
             fill([1 73 73 1], [lim_lower lim_lower lim_upper lim_upper], ...
@@ -84,8 +106,20 @@ for m = midx
             fill([264 nTrials nTrials 264], [lim_lower lim_lower lim_upper lim_upper], ...
                      'r', 'EdgeAlpha', 0, 'FaceAlpha', 0.15);
             % plot the fitted and real log rts
-            plot(res.est(m,sub).y, 'Linewidth', 2); %, 'color', options.col.tnub)
-            plot(res.est(m,sub).optim.yhat, 'r', 'LineWidth',2);
+            if lines
+                for j = 1:nSim
+                    plot(simDat(j,:), 'Color', [0.2 0.5 0.9 0.1], 'LineWidth',1); % 
+                end
+            else
+                fill([1:nTrials, fliplr(1:nTrials)], [(mean(simDat) + std(simDat)), ...
+                    fliplr((mean(simDat) - std(simDat)))], ...
+                         'b', 'EdgeAlpha', 0, 'FaceAlpha', 0.30);
+                fill([1:nTrials, fliplr(1:nTrials)], [(max(simDat)), ...
+                    fliplr(min(simDat))], ...
+                         'b', 'EdgeAlpha', 0, 'FaceAlpha', 0.20);
+            end
+            plot(res.est(m,sub).y, 'r', 'Linewidth', 2); %, 'color', options.col.tnub)
+            plot(median(simDat), 'b', 'LineWidth',2); % 
             scatter(1:length(input), input, 5, 'o','MarkerEdgeColor','k','MarkerEdgeAlpha', 0.6, 'LineWidth', 0.1)
             xlim([0 nTrials])
             ylim([lim_lower lim_upper])
@@ -100,8 +134,8 @@ for m = midx
         if ~exist(figdir, 'dir')
             mkdir(figdir)
         end
-        print(strcat(figdir, filesep, 'logRT_model', modSpace(m).name, '_', num2str(p)), '-dpng');
-        print(strcat(figdir, filesep, 'logRT_model', modSpace(m).name, '_', num2str(p)), '-dsvg');
+        print(strcat(figdir, filesep, 'multiLogRT_model', modSpace(m).name, '_', num2str(p)), '-dpng');
+        print(strcat(figdir, filesep, 'multiLogRT_model', modSpace(m).name, '_', num2str(p)), '-dsvg');
         close;
     end
 end

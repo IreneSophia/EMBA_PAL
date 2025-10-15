@@ -1,5 +1,5 @@
-function [] = plotAggLogRTsModel(modSpace, subDir, saveDir, plotBox, plotLine)
-% Plot comparison of real data and predicted data for conditions
+function [] = plotVarLogRTsModel(modSpace, subDir, saveDir, plotBox, plotLine)
+% Plot comparison of variance in real data and predicted data for conditions
 %
 % !! CAUTION !!: This is HARDCODED for the models used in the EMBA project. 
 %
@@ -75,12 +75,12 @@ for m = 1:nModels
                 subs(count) = i;
                 what(count) = 0; % logY
                 cond{count} = opts{j};
-                data(count) = mean(res.est(m,i).y(idx), 'omitnan');
+                data(count) = std(res.est(m,i).y(idx), 'omitnan');
                 count = count + 1;
                 subs(count) = i;
                 what(count) = 1; % logY
                 cond{count} = opts{j};
-                data(count) = mean(res.est(m,i).optim.yhat(idx), 'omitnan');
+                data(count) = std(res.est(m,i).optim.yhat(idx), 'omitnan');
                 count = count + 1;
             end
         end
@@ -97,16 +97,16 @@ for m = 1:nModels
         % comparison of the difficulty levels
         subplot(2,1,1)
         boxchart(out.difficulty.cond,out.difficulty.logRT,'GroupByColor',out.difficulty.real)
-        ylabel('logRT [ms]', 'FontSize', 14)
-        title('Comparison of subject-specific means of y and yhat', 'FontSize', 20)
+        ylabel('sd(logRT) [ms]', 'FontSize', 14)
+        title('Comparison of subject-specific means of y and yhat SDs', 'FontSize', 20)
         legend
         % comparison of the expected levels
         subplot(2,1,2)
         boxchart(out.expected.cond,out.expected.logRT,'GroupByColor',out.expected.real)
-        ylabel('logRT [ms]', 'FontSize', 14)
+        ylabel('sd(logRT) [ms]', 'FontSize', 14)
         % save the plots
-        print(strcat(figdir, filesep, 'aggLogRT_model', modSpace(m).name, '_box'), '-dpng');
-        print(strcat(figdir, filesep, 'aggLogRT_model', modSpace(m).name, '_box'), '-dsvg');
+        print(strcat(figdir, filesep, 'varLogRT_model', modSpace(m).name, '_box'), '-dpng');
+        print(strcat(figdir, filesep, 'varLogRT_model', modSpace(m).name, '_box'), '-dsvg');
         close;
     end
     % line graphs
@@ -137,8 +137,8 @@ for m = 1:nModels
         xlim([0, 4])
         xticks([1, 2, 3])
         xticklabels({'easy', 'medium', 'difficult'})
-        ylabel('logRT [ms]', 'FontSize', 14)
-        title('Comparison of subject-specific means of y and yhat', 'FontSize', 20)
+        ylabel('sd(logRT) [ms]', 'FontSize', 14)
+        title('Comparison of subject-specific means of y and yhat SDs', 'FontSize', 20)
         legend('y', 'yhat')
         % comparison of the expected levels
         subplot(2,1,2)
@@ -159,10 +159,10 @@ for m = 1:nModels
         xlim([0, 3])
         xticks([1, 2])
         xticklabels({'expected', 'unexpected'})
-        ylabel('logRT [ms]', 'FontSize', 14)
+        ylabel('sd(logRT) [ms]', 'FontSize', 14)
         % save the plots
-        print(strcat(figdir, filesep, 'aggLogRT_model_', modSpace(m).name, '_line'), '-dpng');
-        print(strcat(figdir, filesep, 'aggLogRT_model_', modSpace(m).name, '_line'), '-dsvg');
+        print(strcat(figdir, filesep, 'varLogRT_model_', modSpace(m).name, '_line'), '-dpng');
+        print(strcat(figdir, filesep, 'varLogRT_model_', modSpace(m).name, '_line'), '-dsvg');
         close;        
     end
 end
