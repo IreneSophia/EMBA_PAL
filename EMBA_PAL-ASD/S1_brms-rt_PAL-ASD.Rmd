@@ -1,0 +1,867 @@
+---
+title: "S1: behavioural, conventional analysis with brms"
+author: "I. S. Plank"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    number_sections: true
+fontsize: 10pt
+#geometry: margin=0.5in
+---
+  
+```{r settings, include=FALSE}
+
+knitr::opts_chunk$set(echo = T, warning = F, message = F, fig.align = 'center', fig.width = 7.4)
+ls.packages = c("knitr",# kable
+    "ggplot2",          # plots
+    "brms",             # Bayesian lmms
+    "bridgesampling",   # bridge_sampler
+    "tidyverse",        # tibble stuff
+    "ggpubr",           # ggarrange
+    "ggrain",           # geom_rain
+    "bayesplot",        # plots for posterior predictive checks
+    "SBC",              # plots for checking computational faithfulness
+    "rstatix",          # anova
+    "officer",          # read_docx
+    "effectsize",       # interpret_bf
+    "BayesFactor", 
+    "bayestestR"        # equivalence_test
+)
+
+lapply(ls.packages, library, character.only=TRUE)
+
+# options for summarise
+options(dplyr.summarise.inform = FALSE)
+
+# set cores
+options(mc.cores = parallel::detectCores())
+
+# set options for SBC
+use_cmdstanr = getOption("SBC.vignettes_cmdstanr", TRUE) # Set to false to use rstan instead
+options(brms.backend = "cmdstanr")
+
+# using parallel processing
+library(future)
+plan(multisession)
+
+# Setup caching of results
+brms_dir = "./_brms_models"
+if(!dir.exists(brms_dir)) {
+  dir.create(brms_dir)
+}
+
+# load helper functions
+source('../helper/createDFdemo.R')
+
+# graph settings 
+c_light = "#a9afb2"; c_light_highlight = "#8ea5b2"; c_mid = "#6b98b2" 
+c_mid_highlight = "#3585b2"; c_dark = "#0072b2"; c_dark_highlight = "#0058b2" 
+c_green = "#009E73"
+c_dark_green = "#006f50"
+sz = 1
+a = 0.5
+
+# custom colour palette
+col.grp = c("#004D40", "#1E88E5")
+col.cnd = c("#5D3A9B", "#E66100")
+
+lower_ci = function(var) {
+  unname(quantile(var, probs = 0.025))
+}
+upper_ci = function(var) {
+  unname(quantile(var, probs = 0.975))
+}
+
+# calculate visual angle: px.x should be a vector of c(width, height) in pixel
+vis_ang = function(px.x) {
+  
+  # infos on the setup
+  mm.w = 344    # monitor width in mm
+  mm.h = 215    # monitor height in mm
+  px.w = 2650   # monitor resolution: width
+  px.h = 1600   # monitor resolution: height
+  dist = 570    # viewing distance
+  
+  # convert width from screen pixel size to mm and take half
+  mm.x    = (px.x[1] / (px.w/mm.w))/2
+  
+  # convert height from screen pixel size to mm and take half
+  mm.x[2] = (px.x[2] / (px.h/mm.h))/2
+  
+  # calculate angles
+  rad.alpha    = atan(mm.x[1]/dist)
+  rad.alpha[2] = atan(mm.x[2]/dist)
+  
+  # convert to degrees and double again
+  deg.alpha    = (rad.alpha[1] / (pi/180)) * 2
+  deg.alpha[2] = (rad.alpha[2] / (pi/180)) * 2
+  
+  return(deg.alpha)
+  
+}
+
+```
+
+<style type="text/css">
+  .main-container {
+    max-width: 1100px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+</style>
+  
+# Task info and setup
+  
+This R Markdown script analyses data from the PAL (probabilistic associative learning) task of the EMBA project. It focuses on the comparison of adults with ASD and adults without psychiatric diagnoses. The data was preprocessed before being read into this script. 
+
+In this task, participants view faces for which they have to judge whether the portrayed emotion is positive or negative. The faces are preceded by a tone which is predictive of the valence of the following face. The visual angle of the faces was `r round(vis_ang(c(265,350))[1],2)` degrees wide and `r round(vis_ang(c(265,350))[2],2)` degrees high.
+
+## Plot the development of associations across task
+
+```{r plot_scheme, fig.height=4}
+
+# load the trial order
+df.trl = read_csv('../data/PAL_scheme.csv', show_col_types = F) %>%
+  mutate(
+    association = ut*100, 
+    prob_HP = prob_HP*100
+  )
+
+# create rectangles to colour the phases: prevolatile, volatile and postvolatile
+rects = data.frame(xstart = c(-Inf, 72, 264), 
+                   xend = c(72, 264, Inf), 
+                   col = c("a", "b", "c"))
+  
+ggplot() +
+  geom_rect(data = rects, aes(xmin = xstart, xmax = xend, 
+                              ymin = -Inf, ymax = Inf, 
+                              fill = col), alpha = 0.4) +
+  scale_fill_manual(values=c(c_mid_highlight, c_green, c_dark_highlight), 
+                    guide = "none") +
+  geom_jitter(data = df.trl, 
+              aes(x = trl, y = association, shape = expected),
+              colour = "black", alpha = 0.8, size = 1, width = 0, height = 4) +
+  geom_line(data = df.trl, 
+            aes(x = trl, y = prob_HP),
+            colour = "black") +
+  scale_shape_manual(values = c(8, 1, 3)) +
+  theme_bw() + 
+  scale_y_continuous(breaks=c(16.7, 83.3)) +
+  labs(x = "trial", y = "percent", 
+       title = "High tone > positive, low tone > negative emotion") +
+  annotate("text", x = 36, y = 125, label= "prevolatile", size = 4) +
+  annotate("text", x = 168, y = 125, label= "volatile", size = 4) +
+  annotate("text", x = 301, y = 125, label= "postvolatile", size = 4) +
+  theme(legend.position = c(0.9, 0.5), legend.title = element_blank(), 
+        legend.background = element_rect(fill = alpha("white", 0)),
+        legend.key = element_rect(fill = alpha("white", 0)),
+        plot.title = element_text(hjust = 0.5), text = element_text(size = 12))
+
+ggsave("plots/PAL_scheme.png", 
+       units = "cm",
+       width = 27,
+       height = 9)
+
+
+```
+
+## Some general settings
+
+```{r set}
+
+# number of simulations
+nsim = 250
+
+# set number of iterations and warmup for models
+iter = 6000
+warm = 1500
+
+# set the seed
+set.seed(2468)
+
+```
+
+## Package versions
+
+The following packages are used in this RMarkdown file: 
+  
+```{r lib_versions, echo=F}
+
+print(R.Version()$version.string)
+
+for (package in ls.packages) {
+  print(sprintf("%s version %s", package, packageVersion(package)))
+}
+
+```
+
+## Analysis guidelines 
+
+We planned to determine the group-level effect subjects following Barr (2013). For each model, experiment specific priors were set based on previous literature or the task (see comments in the code).
+
+We performed prior predictive checks as proposed in Schad, Betancourt and Vasishth (2020) using the SBC package before running this analysis (see [!LINK]). We performed these data-naive evaluations based on the comparison of three groups. To do so, we create `r nsim` simulated datasets where parameters are simulated from the priors. These parameters are used to create one fake dataset. Both the true underlying parameters and the simulated discrimination values are saved. Then, we create graphs showing the prior predictive distribution of the simulated discrimination threshold to check whether our priors fit our general expectations about the data. Next, we perform checks of computational faithfulness and model sensitivity as proposed by Schad, Betancourt and Vasishth (2020) and implemented in the SBC package. We create models for each of the simulated datasets. Last, we calculate performance metrics for each of these models, focusing on the population-level parameters. 
+
+## Preparation
+
+First, we load the data and combine it with demographic information including the diagnostic status of the subjects. Then, all predictors are set to sum contrasts. 
+
+```{r prep}
+
+
+# check if the data file exists, if yes load it:
+if (!file.exists("../data/PAL-ASD_data.RData")) {
+
+  # get demo info for subjects
+  df.sub = read_csv(file.path("/home/emba/Documents/EMBA/CentraXX", "EMBA_centraXX.csv"), 
+                    show_col_types = F) %>%
+    mutate(
+      diagnosis = as.factor(recode(diagnosis, "CTR" = "COMP"))
+    )
+  
+  # set the data path
+  dt.path  = "/home/emba/Documents/EMBA/BVET"
+  dt.explo = "/home/emba/Documents/EMBA/BVET-explo"
+  
+  # load the preprocessed data: df.tsk
+  df.tsk = rbind(readRDS(file.path(dt.path,  "PAL_tsk.rds")),
+                 readRDS(file.path(dt.explo, "PAL_tsk.rds")))
+  
+  # load excluded participants (accuracy < 2/3)
+  exc = c(scan(file.path(dt.path, 'PAL_exc.txt'),  what="character", sep=NULL),
+          scan(file.path(dt.explo, 'PAL_exc.txt'), what="character", sep=NULL))
+  df.exc = df.sub %>% filter(subID %in% exc & diagnosis %in% c("COMP", "ASD")) %>% 
+    select(diagnosis) %>% 
+    group_by(diagnosis) %>% count()
+  
+  # merge with group and focus on comparison and autistic adults
+  df.tsk = merge(df.sub %>% select(subID, diagnosis), 
+                 df.tsk, all.y = T) %>%
+    filter(diagnosis %in% c("ASD", "COMP") & !(subID %in% exc)) %>%
+    droplevels() %>%
+    mutate_if(is.character, as.factor)
+  
+  # only keep participants included in the study in the subject data frame
+  df.sub = merge(df.tsk %>% select(subID) %>% distinct(), df.sub, all.x = T) %>%
+    droplevels()
+
+  # anonymise the data based on predetermined file > same for all data
+  df.recode = read_csv(file.path("/home/emba/Documents/EMBA/BVET", "PID_anonymisation.csv"))
+  recode = as.character(df.recode$subID)
+  names(recode) = df.recode$PID
+  df.tsk$subID = str_replace_all(df.tsk$subID, recode)
+  
+  # save the data for use with the EMBA_HGF toolbox
+  df.tsk %>% select(subID, trl, diagnosis, ut, difficulty, acc, rt) %>%
+    ungroup() %>%
+    arrange(subID, trl) %>%
+    write_csv(., file = "../data/PAL-ASD_data.csv")
+  
+  # print gender frequencies and compare them across groups
+  tb.gen = xtabs(~ gender + diagnosis, data = df.sub)
+  ct.full = contingencyTableBF(tb.gen, 
+                               sampleType = "indepMulti", 
+                               fixedMargin = "cols")
+  
+  # create a demographics overview
+  df.demo = createDFdemo(df.sub, 
+                         c("age", "edu", "BDI_total", "ASRS_total", "RAADS_total", "TAS_total", "iq"),
+                         "diagnosis")
+  
+  # save it all
+  save(df.tsk, df.demo, ct.full, df.exc, tb.gen, 
+       file = "../data/PAL-ASD_data.RData")
+  
+} else {
+  
+  load("../data/PAL-ASD_data.RData")
+  
+}
+
+# print the group of excluded participants
+kable(df.exc)
+rm(df.exc)
+
+# print the outcome of the two contingency tables for comparison: all participants
+ct.full@bayesFactor
+# print gender and diagnosis distribution
+kable(tb.gen)
+
+# drop the neutral condition for the analysis
+df.pal = df.tsk %>%
+  filter(expected != "neutral" & !is.na(rt.cor)) %>% droplevels() %>%
+  mutate_if(is.character, as.factor) %>%
+  ungroup()
+
+# set and print the contrasts
+contrasts(df.pal$diagnosis) = contr.sum(2)
+contrasts(df.pal$diagnosis)
+contrasts(df.pal$expected) = contr.sum(2)
+contrasts(df.pal$expected)
+contrasts(df.pal$phase) = contr.sum(3)
+contrasts(df.pal$phase)
+contrasts(df.pal$difficulty) = contr.sum(3)
+contrasts(df.pal$difficulty)
+
+# print final group comparisons for the paper into a Word document
+read_docx() %>%
+    body_add_table(df.demo %>% arrange(measurement) %>% 
+                         mutate(bf.log = 
+                                  if_else(
+                                    bf.log > log(3), 
+                                    sprintf("%.3f*", bf.log),
+                                    sprintf("%.3f", bf.log)))) %>%
+    print(target = "PAL-ASD_demo.docx")
+
+```
+
+# Reaction times in correct trials
+
+In the preregistration, we noted the following population-level effects for the model of the reaction time variances: group, expectancy, phase and difficulty; as well as the group-level predictores subject and trials.
+
+## Model setup
+
+```{r model_rt}
+
+# figure out slopes for subjects
+kable(head(df.pal %>% count(subID, expected)))
+kable(head(df.pal %>% count(subID, phase)))
+kable(head(df.pal %>% count(subID, difficulty)))
+kable(head(df.pal %>% count(subID, expected, phase)))
+kable(head(df.pal %>% count(subID, expected, difficulty)))
+kable(head(df.pal %>% count(subID, phase, difficulty)))
+kable(head(df.pal %>% count(subID, expected, phase, difficulty)))
+
+# figure out slopes for trls
+kable(head(df.pal %>% count(trl, diagnosis)))
+
+# set the formula
+f.pal = brms::bf(rt.cor ~ diagnosis * expected * phase * difficulty +
+                   (expected * phase * difficulty | subID) + (diagnosis | trl))
+
+# set informed priors based on previous results
+priors = c(
+  # informative priors based Lawson et al. and Schad, Betancourt & Vasishth (2019)
+  prior(normal(6.0,   0.3),   class = Intercept),
+  prior(normal(0.0,   0.5),   class = sigma),
+  prior(normal(0,     0.1),   class = sd),
+  prior(lkj(2),               class = cor),
+  prior(normal(100, 100.0),   class = ndt), 
+  prior(normal(0.00,  0.04),  class = b)
+)
+
+```
+
+## Posterior predictive checks
+
+As the next step, we fit the model, check whether there are divergence or rhat issues, and then check whether the chains have converged. 
+
+```{r postpc_rt, fig.height=9, message=T}
+
+# fit the final model
+m.pal = brm(f.pal, seed = 4466,
+            df.pal, prior = priors,
+            family = shifted_lognormal,
+            iter = iter, warmup = warm,
+            backend = "cmdstanr", threads = threading(8),
+            file = file.path(brms_dir, "m_pal"),
+            save_pars = save_pars(all = TRUE)
+            )
+rstan::check_hmc_diagnostics(m.pal$fit)
+
+# check that rhats are below 1.01
+sum(brms::rhat(m.pal) >= 1.01, na.rm = T)
+
+# check the trace plots
+post.draws = as_draws_df(m.pal)
+mcmc_trace(post.draws, regex_pars = "^b_",
+           facet_args = list(ncol = 6)) +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3))
+
+```
+
+This model has no pathological behaviour with E-BFMI, no divergent sample and no rhats that are higher or equal to 1.01. Therefore, we go ahead and perform our posterior predictive checks. 
+
+```{r postpc_rt2, fig.height=6}
+
+# get posterior predictions
+post.pred = posterior_predict(m.pal, ndraws = nsim)
+
+# check the fit of the predicted data compared to the real data
+p1 = pp_check(m.pal, ndraws = nsim) + 
+  theme_bw() + theme(legend.position = "none") + xlim(0, 1500)
+
+# distributions of means compared to the real values per group or conditions
+p2 = ppc_stat_grouped(df.pal$rt.cor, 
+                      post.pred, 
+                      df.pal$diagnosis) + 
+  theme_bw() + theme(legend.position = "none")
+p3 = ppc_stat_grouped(df.pal$rt.cor, 
+                      post.pred, 
+                      df.pal$expected) + 
+  theme_bw() + theme(legend.position = "none")
+p4 = ppc_stat_grouped(df.pal$rt.cor, 
+                      post.pred, 
+                      df.pal$phase) + 
+  theme_bw() + theme(legend.position = "none")
+p5 = ppc_stat_grouped(df.pal$rt.cor, 
+                      post.pred, 
+                      df.pal$difficulty) + 
+  theme_bw() + theme(legend.position = "none")
+
+p = ggarrange(p1, p2, p3, p4, p5, 
+          nrow = 5, ncol = 1, labels = "AUTO")
+annotate_figure(p, top = text_grob("Posterior predictive checks: reaction times", 
+                                   face = "bold", size = 14))
+
+```
+
+The simulated data based on the model fits well with the real data, although there are slight deviations specifically for the predictor expectedness. However, we judge this to be acceptable.  
+
+## Inferences
+
+Now that we are convinced that we can trust our model, we have a look at its estimate and use the hypothesis function to assess our hypotheses and perform explorative tests. 
+
+```{r inf_rt, fig.height=18}
+
+# print a summary
+summary(m.pal)
+
+# get the estimates and compute group comparisons
+df.m.pal = post.draws %>% 
+  mutate(
+    b_postvolatile = - b_phase1 - b_phase2,
+    b_difficult    = - b_difficulty1 - b_difficulty2
+  )
+
+# plot the posterior distributions
+df.m.pal %>%
+  pivot_longer(cols = starts_with("b_"), names_to = "coef", values_to = "estimate") %>%
+  subset(!startsWith(coef, "b_Int")) %>%
+  mutate(
+    coef = substr(coef, 3, nchar(coef)),
+    coef = str_replace_all(coef, ":", " x "),
+    coef = str_replace_all(coef, "diagnosis1", "ASD"),
+    coef = str_replace_all(coef, "expected1", "expected"),
+    coef = str_replace_all(coef, "expected2", "unexpected"),
+    coef = str_replace_all(coef, "phase1", "prevolatile"),
+    coef = str_replace_all(coef, "phase2", "volatile"),
+    coef = str_replace_all(coef, "difficulty1", "easy"),
+    coef = str_replace_all(coef, "difficulty2", "medium"),
+    coef = fct_reorder(coef, desc(estimate))
+  ) %>% 
+  group_by(coef) %>%
+  mutate(
+    cred = case_when(
+      (mean(estimate) < 0 & quantile(estimate, probs = 0.975) < 0) |
+        (mean(estimate) > 0 & quantile(estimate, probs = 0.025) > 0) ~ "credible",
+      T ~ "not credible"
+    )
+  ) %>% ungroup() %>%
+  ggplot(aes(x = estimate, y = coef, fill = cred)) +
+  geom_vline(xintercept = 0, linetype = 'dashed') +
+  ggdist::stat_halfeye(alpha = 0.7) + ylab(NULL) + theme_bw() +
+  scale_fill_manual(values = c(c_dark, c_light)) + theme(legend.position = "none")
+
+## create design matrix to figure out how to set comparisons for hypotheses
+df.des = cbind(df.pal %>% select(diagnosis, expected, phase, difficulty), 
+               model.matrix(~ diagnosis * expected * phase * difficulty, 
+                            data = df.pal)) %>% distinct()
+
+# H1b: COMP(unexp-exp) > ASD(unexp-exp)
+as.data.frame(t(df.des %>% 
+    group_by(diagnosis, expected) %>%
+    summarise(across(where(is.numeric), ~ mean(.x))) %>%
+    group_by(diagnosis) %>%
+    summarise(across(where(is.numeric), ~ diff(.x))) %>% # unexpected - expected
+    select(where(is.numeric)) %>%
+    map_df(~ diff(.x)))) %>%
+  filter(V1 != 0) # COMP - ASD
+
+h1b = hypothesis(m.pal, "0 < diagnosis1:expected1")
+h1b
+
+# H1d: COMP(volatile-prevolatile)) < ASD(volatile-prevolatile)
+as.data.frame(t(df.des %>% 
+    filter(phase != "postvolatile") %>%
+    group_by(diagnosis, phase) %>%
+    summarise(across(where(is.numeric), ~ mean(.x))) %>%
+    group_by(diagnosis) %>%
+    summarise(across(where(is.numeric), ~ diff(.x))) %>% # volatile - prevolatile
+    select(where(is.numeric)) %>%
+    map_df(~ diff(.x)))) %>%
+  filter(V1 != 0) # COMP - ASD
+
+h1d.1 = hypothesis(m.pal, "diagnosis1:phase1 - diagnosis1:phase2 < 0")
+h1d.1
+
+
+# H1d: COMP(postvolatile-volatile)) < ASD(postvolatile-volatile)
+as.data.frame(t(df.des %>% 
+    filter(phase != "prevolatile") %>%
+    group_by(diagnosis, phase) %>%
+    summarise(across(where(is.numeric), ~ mean(.x))) %>%
+    group_by(diagnosis) %>%
+    summarise(across(where(is.numeric), ~ diff(.x))) %>% # postvolatile - volatile
+    select(where(is.numeric)) %>%
+    map_df(~ diff(.x)))) %>%
+  filter(V1 != 0) # COMP - ASD
+
+h1d.2 = hypothesis(m.pal, "2*diagnosis1:phase1 + 4*diagnosis1:phase2 < 0")
+h1d.2
+
+## exploration: prevolatile phase
+
+# prevolatile: COMP(unexpected - expected) != ASD(unexpected - expected)
+as.data.frame(t(df.des %>% 
+    filter(phase == "prevolatile") %>%
+    group_by(diagnosis, expected) %>%
+    summarise(across(where(is.numeric), ~ mean(.x))) %>%
+    group_by(diagnosis) %>%
+    summarise(across(where(is.numeric), ~ diff(.x))) %>% # unexpected - expected
+    select(where(is.numeric)) %>%
+    map_df(~ diff(.x)))) %>%
+  filter(V1 != 0) # COMP - ASD
+
+e1.1 = hypothesis(m.pal, "0 < diagnosis1:expected1 + diagnosis1:expected1:phase1", 
+                  alpha = 0.025)
+e1.1
+
+## exploration: task effects
+
+# expected versus unexpected
+e2.1 = hypothesis(m.pal, "0 > 2*expected1", alpha = 0.025)
+e2.1
+
+# volatile versus prevolatile
+e2.2 = hypothesis(m.pal, "0 < phase1 - phase2", alpha = 0.025)
+e2.2
+
+# volatile versus postvolatile
+e2.3 = hypothesis(m.pal, "0 < phase1 + 2*phase2", alpha = 0.025)
+e2.3
+
+# difficult versus medium
+e2.4 = hypothesis(m.pal, "0 < -difficulty1 - 2*difficulty2", alpha = 0.025)
+e2.4
+
+# medium versus easy
+e2.5 = hypothesis(m.pal, "0 < -difficulty1 + difficulty2", alpha = 0.025)
+e2.5
+
+# difficult versus easy
+e2.6 = hypothesis(m.pal, "0 < -2*difficulty1 - difficulty2", alpha = 0.025)
+e2.6
+
+## extract predicted differences in ms instead of log data
+df.new = df.pal %>% 
+  select(diagnosis, phase, expected, difficulty) %>% 
+  distinct() %>%
+  mutate(
+    condition = paste(diagnosis, phase, expected, difficulty, sep = "_")
+  )
+df.ms = as.data.frame(
+  fitted(m.pal, summary = F, 
+               newdata = df.new %>% select(diagnosis, phase, expected, difficulty), 
+               re_formula = NA))
+colnames(df.ms) = df.new$condition
+
+# calculate our difference columns
+df.ms = df.ms %>%
+  mutate(
+    COMP_expected     = rowMeans(across(matches("COMP_.*_expected_.*"))),
+    COMP_unexpected   = rowMeans(across(matches("COMP_.*_unexpected_.*"))),
+    ASD_expected      = rowMeans(across(matches("ASD_.*_expected_.*"))),
+    ASD_unexpected    = rowMeans(across(matches("ASD_.*_unexpected_.*"))),
+    COMP_unexp_exp    = COMP_unexpected - COMP_expected,
+    ASD_unexp_exp     = ASD_unexpected  - ASD_expected,
+    `h1b_COMP-ASD unexpected-expected`  = COMP_unexp_exp - ASD_unexp_exp,
+    ASD_prevolatile   = rowMeans(across(matches("ASD_prevolatile_.*"))),
+    ASD_volatile      = rowMeans(across(matches("ASD_volatile_.*"))),
+    COMP_prevolatile  = rowMeans(across(matches("COMP_prevolatile_.*"))),
+    COMP_volatile     = rowMeans(across(matches("COMP_volatile_.*"))),
+    ASD_postvolatile  = rowMeans(across(matches("ASD_postvolatile_.*"))),
+    COMP_postvolatile = rowMeans(across(matches("COMP_postvolatile_.*"))),
+    `h1d_ASD-COMP volatile-prevolatile` = 
+      (ASD_volatile - ASD_prevolatile) - (COMP_volatile - COMP_prevolatile),
+    `h1d_ASD-COMP postvolatile-volatile` = 
+      (ASD_postvolatile - ASD_volatile) - (COMP_postvolatile - COMP_volatile),
+    COMP_pre_unexp    = rowMeans(across(matches("COMP_prevolatile_unexpected_.*"))),
+    COMP_pre_exp      = rowMeans(across(matches("COMP_prevolatile_expected_.*"))),
+    ASD_pre_unexp     = rowMeans(across(matches("ASD_prevolatile_unexpected_.*"))),
+    ASD_pre_exp       = rowMeans(across(matches("ASD_prevolatile_expected_.*"))),
+    `e11_prevolatile COMP-ASD unexpected-expected` = 
+      (COMP_pre_unexp - COMP_pre_exp) - (ASD_pre_unexp - ASD_pre_exp),
+    `e21_unexpected-expected`           = rowMeans(across(matches(".*_unexpected_.*"))) - 
+      rowMeans(across(matches(".*_expected_.*"))),
+    `e22_volatile-prevolatile`       = rowMeans(across(matches(".*_volatile_.*"))) - 
+      rowMeans(across(matches(".*_prevolatile_.*"))),
+    `e23_volatile-postvolatile`      = rowMeans(across(matches(".*_volatile_.*"))) - 
+      rowMeans(across(matches(".*_postvolatile_.*"))),
+    `e24_difficult-medium`      = rowMeans(across(matches(".*_difficult"))) - 
+      rowMeans(across(matches(".*_medium"))),
+    `e25_medium-easy`      = rowMeans(across(matches(".*_medium"))) - 
+      rowMeans(across(matches(".*_easy"))),
+    `e26_difficult-easy`     = rowMeans(across(matches(".*_difficult"))) - 
+      rowMeans(across(matches(".*_easy")))
+  )
+
+kable(df.ms %>% 
+  select(starts_with("e") | starts_with("h")) %>% 
+  summarise_all(list(lower_ci = lower_ci, mean = mean, upper_ci = upper_ci)) %>%
+  t %>% 
+  as.data.frame %>% 
+  rownames_to_column() %>%
+  separate(rowname, into = c("id", "comparison", "stat"), sep = "_") %>%
+  pivot_wider(names_from = stat, values_from = V1) %>%
+  arrange(comparison), digits = 2)
+
+equivalence_test(df.ms %>% select(starts_with("h")),
+                 range = rope_range(m.pal))
+  
+# calculate effect sizes
+df.effect = df.m.pal %>%
+  mutate(across(starts_with("sd")|starts_with("sigma"), ~.^2)) %>%
+  mutate(
+    sumvar = sqrt(rowSums(select(., starts_with("sd")|starts_with("sigma")))),
+    h1b    = 4*`b_diagnosis1:expected1` / sumvar,
+    h1d.1  = 2*(`b_diagnosis1:phase1` - `b_diagnosis1:phase2`) / sumvar,
+    h1d.2  = 2*(`b_diagnosis1:phase1` + 2*`b_diagnosis1:phase2`) / sumvar,
+    e.exp  = -2*b_expected1 / sumvar,
+    e.dif  = (-2*b_difficulty1 - b_difficulty2) / sumvar
+  )
+
+kable(df.effect %>% select(starts_with("e.")|starts_with("h")) %>%
+        pivot_longer(cols = everything(), values_to = "estimate") %>%
+        group_by(name) %>%
+        summarise(
+          ci.lo = lower_ci(estimate),
+          mean  = mean(estimate),
+          ci.hi = upper_ci(estimate),
+          interpret = interpret_cohens_d(mean)
+        ), digits = 3
+)
+
+```
+
+H1b: *estimate* = `r round(h1b$hypothesis$Estimate,2)` [`r round(h1b$hypothesis$CI.Lower,2)`, `r round(h1b$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h1b$hypothesis$Post.Prob*100,2)`%
+
+H1c pre to vol: *estimate* = `r round(h1d.1$hypothesis$Estimate,2)` [`r round(h1d.1$hypothesis$CI.Lower,2)`, `r round(h1d.1$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h1d.1$hypothesis$Post.Prob*100,2)`%
+
+H1c vol to post: *estimate* = `r round(h1d.2$hypothesis$Estimate,2)` [`r round(h1d.2$hypothesis$CI.Lower,2)`, `r round(h1d.2$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h1d.2$hypothesis$Post.Prob*100,2)`%
+
+Expectancy: *estimate* = `r round(e2.1$hypothesis$Estimate,2)` [`r round(e2.1$hypothesis$CI.Lower,2)`, `r round(e2.1$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(e2.1$hypothesis$Post.Prob*100,2)`%
+
+Difficult - easy: *estimate* = `r round(e2.6$hypothesis$Estimate,2)` [`r round(e2.6$hypothesis$CI.Lower,2)`, `r round(e2.6$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(e2.6$hypothesis$Post.Prob*100,2)`%
+
+## Plots
+
+```{r plot_rt, fig.height=10}
+
+# rain cloud plot including all factors
+
+df.pal %>%
+  ggplot(aes(diagnosis, rt.cor, fill = expected, colour = expected)) + #
+  geom_rain(rain.side = 'r',
+boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
+violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
+boxplot.args.pos = list(
+  position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
+),
+point.args = list(show_guide = FALSE, alpha = .5),
+violin.args.pos = list(
+  width = 0.6, position = position_nudge(x = 0.16)),
+point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
+  scale_fill_manual(values = col.cnd) +
+  scale_color_manual(values = col.cnd) +
+  #ylim(0, 1) +
+  labs(title = "Reaction times per subject", x = "", y = "rt (ms)") +
+  facet_wrap(difficulty ~ phase) +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5), 
+        legend.direction = "horizontal", text = element_text(size = 15))
+
+```
+
+```{r plot_rt2, fig.height=4}
+
+# rain cloud plot focusing on the effect of expectancy
+df.pal %>%
+  group_by(subID, diagnosis, expected, phase) %>%
+  summarise(
+    rt.cor = median(rt.cor, na.rm = T)
+  ) %>%
+  group_by(subID, diagnosis, phase) %>%
+  summarise(
+    rt.exp = diff(rt.cor)
+  ) %>%
+  ggplot(aes(phase, rt.exp, fill = diagnosis, colour = diagnosis)) + #
+  geom_hline(yintercept = 0, linewidth = 1) + 
+  geom_rain(rain.side = 'r',
+boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
+violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
+boxplot.args.pos = list(
+  position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
+),
+point.args = list(show_guide = FALSE, alpha = .5),
+violin.args.pos = list(
+  width = 0.6, position = position_nudge(x = 0.16)),
+point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
+  scale_fill_manual(values = col.grp) +
+  scale_color_manual(values = col.grp) +
+  #ylim(0, 1) +
+  labs(title = "", x = "", y = "rt difference (ms)") +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_blank(), 
+        legend.direction = "horizontal", text = element_text(size = 15),
+        legend.title = element_blank())
+
+ggsave("plots/FigRT.svg", units = "cm", width = 18, height = 9)
+
+# plot transition effects specifically
+df.pal %>% 
+  group_by(subID, diagnosis, phase, expected) %>%
+  summarise(rt.cor = median(rt.cor, na.rm = T)) %>%
+  group_by(diagnosis, phase, expected) %>%
+  summarise(
+    rt.mn = mean(rt.cor),
+    rt.se = sd(rt.cor)
+  ) %>%
+  ggplot(aes(y = rt.mn, x = phase, 
+             group = diagnosis, colour = diagnosis)) +
+  geom_line(position = position_dodge(0.4), linewidth = 1) +
+  geom_errorbar(aes(ymin = rt.mn - rt.se, 
+                    ymax = rt.mn + rt.se), linewidth = 1, width = 0.5, 
+                position = position_dodge(0.4)) + 
+  geom_point(position = position_dodge(0.4), size = 5) + 
+  labs (x = "phase", y = "rt var (ms)") + 
+  ggtitle("Diagnosis x phase x expected") + 
+  facet_wrap(. ~ expected) +
+  scale_fill_manual(values = col.grp) +
+  scale_color_manual(values = col.grp) +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5))
+
+```
+
+
+# Explorative analysis of errors
+
+Last but not least, we are going to explore possible differences with regards to mean accuracies using a Bayesian ANOVA.
+
+```{r acc}
+
+# create accuracies dataframe
+df.acc = df.tsk %>% filter(expected != "neutral") %>% droplevels() %>%
+  group_by(subID, diagnosis, phase, expected, difficulty) %>%
+  summarise(acc = mean(acc)*100)
+
+# check normal distribution
+kable(df.tsk %>% group_by(subID, diagnosis, phase, expected, difficulty) %>%
+  summarise(acc = mean(acc)*100) %>% 
+  group_by(diagnosis, phase, expected, difficulty) %>%
+  shapiro_test(acc) %>%
+    mutate(
+      sig = if_else(p < 0.05, "*", "")
+    ))
+
+# rank transform the data
+df.acc = df.acc %>%
+  ungroup() %>%
+  mutate(
+    racc   = rank(acc)
+    )
+
+# run the ANOVA
+if (!file.exists(file.path(brms_dir, "aov_acc.rds"))){
+  aov.acc   = anovaBF(racc   ~ diagnosis * phase * expected * difficulty, data = df.acc)
+  saveRDS(aov.acc, file = file.path(brms_dir, "aov_acc.rds"))
+} else {
+  aov.acc = readRDS(file.path(brms_dir, "aov_acc.rds"))
+}
+
+bf.acc = extractBF(aov.acc, logbf = T)
+kable(head(bf.acc %>% arrange(desc(bf))))
+
+# print overall accuracy rates for all the effects included in the best model
+df.acc %>% 
+  group_by(diagnosis, difficulty, expected) %>% 
+  summarise(mean_accuracy = mean(acc, na.rm = T), 
+            sd_accuracy = sd(acc, na.rm = T))
+
+df.acc %>% 
+  group_by(diagnosis) %>% 
+  summarise(mean_accuracy = mean(acc, na.rm = T), 
+            sd_accuracy = sd(acc, na.rm = T))
+
+df.acc %>% 
+  group_by(expected) %>% 
+  summarise(mean_accuracy = mean(acc, na.rm = T), 
+            sd_accuracy = sd(acc, na.rm = T))
+
+df.acc %>% 
+  group_by(difficulty) %>% 
+  summarise(mean_accuracy = mean(acc, na.rm = T), 
+            sd_accuracy = sd(acc, na.rm = T))
+
+```
+
+Accuracies were generally high, with a grand average of `r round(mean(df.acc$acc),2)`% accurate responses across diagnostic groups. Accuracies seems to have differed between diagnostic groups. Let's do some plotting to figure out where our differences lie. 
+
+## Plots
+
+```{r plot_acc, fig.height=10}
+
+# rain cloud plot including all factors
+
+df.acc %>%
+  ggplot(aes(expected, acc, fill = diagnosis, colour = diagnosis)) + #
+  geom_rain(rain.side = 'r',
+boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
+violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
+boxplot.args.pos = list(
+  position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
+),
+point.args = list(show_guide = FALSE, alpha = .5),
+violin.args.pos = list(
+  width = 0.6, position = position_nudge(x = 0.16)),
+point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
+  scale_fill_manual(values = col.grp) +
+  scale_color_manual(values = col.grp) +
+  labs(title = "Accuracies per subject", x = "", y = "accuracy (%)") +
+  facet_wrap(phase ~ difficulty) +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5), 
+        legend.direction = "horizontal", text = element_text(size = 15))
+
+```
+
+```{r plot_acc2, fig.height=4}
+
+# plot as line plot without the phases
+df.acc %>%
+  group_by(subID, diagnosis, expected, difficulty) %>%
+  summarise(
+    acc = mean(acc, na.rm = T)
+  ) %>% 
+  group_by(diagnosis, expected, difficulty) %>%
+  summarise(
+    acc.mn = mean(acc),
+    acc.se = sd(acc)
+  ) %>%
+  ggplot(aes(y = acc.mn, x = difficulty, group = expected, colour = expected)) +
+  geom_line(position = position_dodge(0.4), linewidth = 1) +
+  geom_errorbar(aes(ymin = acc.mn - acc.se, 
+                    ymax = acc.mn + acc.se), linewidth = 1, width = 0.5, 
+                position = position_dodge(0.4)) + 
+  geom_point(position = position_dodge(0.4), size = 5) + 
+  facet_wrap(. ~ diagnosis) +
+  #ylim(75,100) +
+  labs (x = "difficulty", y = "accuracy") + 
+  scale_fill_manual(values = col.cnd) +
+  scale_color_manual(values = col.cnd) +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5))
+
+```

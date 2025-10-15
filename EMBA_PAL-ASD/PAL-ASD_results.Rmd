@@ -1,0 +1,276 @@
+---
+title: "PAL ASD results"
+author: "I S Plank"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+ls.packages = c("knitr",# kable
+    "ggplot2",          # plots
+    "brms",             # Bayesian lmms
+    "bridgesampling",   # bridge_sampler
+    "tidyverse",        # tibble stuff
+    "ggpubr",           # ggarrange
+    "ggrain",           # geom_rain
+    "bayesplot",        # plots for posterior predictive checks
+    "SBC",              # plots for checking computational faithfulness
+    "rstatix",          # anova
+    "officer",          # read_docx
+    "effectsize",       # interpret_bf
+    "BayesFactor", 
+    "bayestestR"        # equivalence_test
+)
+
+lapply(ls.packages, library, character.only=TRUE)
+
+
+# confidence interval functions
+lower_ci = function(var) {
+  unname(quantile(var, probs = 0.025))
+}
+upper_ci = function(var) {
+  unname(quantile(var, probs = 0.975))
+}
+
+# function to interpret posterior probabilities
+interpret_PP = function(p) {
+  if (p > 0.975) {
+    "very strong"
+  } else if (p > 0.95) {
+    "strong"
+  } else if (p > 0.90) {
+    "moderate"
+  } else if (p > 0.80) {
+    "small"
+  } else if (p > 0.70) {
+    "anecdotal"
+  } else {
+    "no"
+  }
+}
+
+brms_dir = "./_brms_models"
+
+# load the models
+m.vol = readRDS(file.path(brms_dir, "m_hgf_vol.rds"))
+m.om3 = readRDS(file.path(brms_dir, "m_hgf_om3.rds"))
+m.ber = readRDS(file.path(brms_dir, "m_hgf_bern.rds"))
+
+# hypotheses
+h3a = hypothesis(m.vol, "0 < diagnosis1")
+h3b = hypothesis(m.om3, "0 < diagnosis1")
+e   = hypothesis(m.ber, "sbe4 > 0", alpha = 0.025)
+
+# equivalence
+equ.vol = equivalence_test(m.vol)
+equ.om3 = equivalence_test(m.om3)
+equ.ber = equivalence_test(m.ber)
+
+# get effect sizes (Hedges, 2007)
+df.eff.vol = as_draws_df(m.vol) %>%
+  mutate(
+    group = -2*b_diagnosis1 / sigma
+  ) %>% select(group) %>%
+  pivot_longer(cols = everything(), values_to = "estimate") %>%
+  group_by(name) %>%
+  summarise(
+    ci.lo = lower_ci(estimate),
+    mean  = mean(estimate),
+    ci.hi = upper_ci(estimate),
+    interpret = interpret_cohens_d(mean)
+  )
+df.eff.om3 = as_draws_df(m.om3) %>%
+  mutate(
+    group = -2*b_diagnosis1 / sigma
+  ) %>% select(group) %>%
+  pivot_longer(cols = everything(), values_to = "estimate") %>%
+  group_by(name) %>%
+  summarise(
+    ci.lo = lower_ci(estimate),
+    mean  = mean(estimate),
+    ci.hi = upper_ci(estimate),
+    interpret = interpret_cohens_d(mean)
+  )
+
+```
+
+# Results
+
+## Volatility parameters and learning rates
+
+There was no credible difference between the influence of phasic volatility in autistic and comparison adults (*estimate* = `r round(h3a$hypothesis$Estimate,2)` [`r round(h3a$hypothesis$CI.Lower,2)`, `r round(h3a$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h3a$hypothesis$Post.Prob*100,2)`%, *δ* = `r round(df.eff.vol$mean, 3)` [`r round(df.eff.vol$ci.lo, 3)`, `r round(df.eff.vol$ci.hi, 3)`], see [!FIGURE 4]), contrasting our hypothesis and previous findings. However, there was `r interpret_PP(h3a$hypothesis$Post.Prob)` evidence in favour of a difference with the posterior probability approaching the preregistered cutoff of 95%, falling slightly short of credible evidence but also not lending support to comparable phasic volatility with only `r round(equ.vol$ROPE_Percentage[2]*100, 2)`% of posterior estimates inside the Region of Practical Equivalence (ROPE, highest density interval (HDI) = [`r round(equ.vol$HDI_low[2], 2)`, `r round(equ.vol$HDI_high[2], 2)`]), suggested by Kruschke [!REF2018] for assessing evidence for equivalence. Similarly, `r interpret_PP(e$hypothesis$Post.Prob)` evidence pointed towards increased phasic volatility predicting ASD in the explorative Bernoulli model, with a posterior probability of `r round(e$hypothesis$Post.Prob*100,2)`% (*estimate* = `r round(e$hypothesis$Estimate,2)` [`r round(e$hypothesis$CI.Lower,2)`, `r round(e$hypothesis$CI.Upper,2)`], inside ROPE = `r round(equ.ber$ROPE_Percentage[5]*100, 2)`%, HDI = [`r round(equ.ber$HDI_low[5], 2)`, `r round(equ.ber$HDI_high[5], 2)`]). Last, there was `r interpret_PP(h3b$hypothesis$Post.Prob)` evidence towards higher environmental tonic volatility in autistic than comparison adults (*estimate* = `r round(h3b$hypothesis$Estimate,2)` [`r round(h3b$hypothesis$CI.Lower,2)`, `r round(h3b$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h3b$hypothesis$Post.Prob*100,2)`%, *δ* = `r round(df.eff.om3$mean, 3)` [`r round(df.eff.om3$ci.lo, 3)`, `r round(df.eff.om3$ci.hi, 3)`], inside ROPE = `r round(equ.om3$ROPE_Percentage[2]*100, 2)`%, HDI = [`r round(equ.om3$HDI_low[2], 2)`, `r round(equ.om3$HDI_high[2], 2)`]).
+
+```{r dat1, include=FALSE}
+
+# load the models
+m.alpha = readRDS(file.path(brms_dir, "m_hgf_alpha.rds"))
+aov = readRDS(file.path(brms_dir, "aov_alpha.rds"))
+
+# hypotheses
+h4a = hypothesis(m.alpha, "0 > - diagnosis1 + diagnosis1:level1")
+h4b = hypothesis(m.alpha, "0 < -diagnosis1 - diagnosis1:level1")
+
+aov.bf = aov@bayesFactor %>% arrange(desc(bf))
+
+# get effect sizes (Hedges, 2007)
+df.eff.alpha = as_draws_df(m.alpha)  %>%
+  mutate(
+    sumvar = sqrt(sigma^2 + sd_subID__Intercept^2 + 
+                    sd_subID__level1^2 + sd_subID__change1^2),
+    group = 2*b_diagnosis1 / sumvar,
+    h4a   = -(-2*b_diagnosis1 + 2*`b_diagnosis1:level1`) / sumvar,
+    h4b   = -(-2*b_diagnosis1 - 2*`b_diagnosis1:level1`) / sumvar
+  ) %>% select(group, h4a, h4b) %>%
+  pivot_longer(cols = everything(), values_to = "estimate") %>%
+  group_by(name) %>%
+  summarise(
+    ci.lo = lower_ci(estimate),
+    mean  = mean(estimate),
+    ci.hi = upper_ci(estimate),
+    interpret = interpret_cohens_d(mean)
+  )
+
+```
+
+For the model regarding learning rates, posterior predictive checks revealed a suboptimal fit of estimated parameters for the change from volatile to postvolatile phase. Thus, we complemented the examination of the posterior distributions with Bayesian ANOVA of the ranked learning rates. Posterior distributions of the preregistered model showed `r interpret_PP(h4a$hypothesis$Post.Prob)` but not credible evidence for increased learning rate of environmental changes (*estimate* = `r round(h4a$hypothesis$Estimate,2)` [`r round(h4a$hypothesis$CI.Lower,2)`, `r round(h4a$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h4a$hypothesis$Post.Prob*100,2)`%, *δ* = `r round(df.eff.alpha[df.eff.alpha$name == "h4a",]$mean, 3)` [`r round(df.eff.alpha[df.eff.alpha$name == "h4a",]$ci.lo, 3)`, `r round(df.eff.alpha[df.eff.alpha$name == "h4a",]$ci.hi, 3)`]) and  `r interpret_PP(1-h4b$hypothesis$Post.Prob)` evidence *against* the hypothesis of decreased learning rate for cue-outcome associations (*estimate* = `r round(h4b$hypothesis$Estimate,2)` [`r round(h4b$hypothesis$CI.Lower,2)`, `r round(h4b$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h4b$hypothesis$Post.Prob*100,2)`%, *δ* = `r round(df.eff.alpha[df.eff.alpha$name == "h4b",]$mean, 3)` [`r round(df.eff.alpha[df.eff.alpha$name == "h4b",]$ci.lo, 3)`, `r round(df.eff.alpha[df.eff.alpha$name == "h4b",]$ci.hi, 3)`], see [!Figure 5]). The Bayesian ANOVA revealed almost identical fit for two models, both containing the predictors level and change with one of them also including their interaction (without interaction log(*BF*) = `r round(aov.bf$bf[1],2)`, with interaction log(*BF*) = `r round(aov.bf$bf[2],2)`). However, there was only anecdotal evidence in favour of these two models compared to the model with the third-best fit which additionally included the predictor group (log(*BF*) = `r round(aov.bf$bf[3],2)`). Thus, all results regarding the learning rates should be interpreted cautiously.
+
+## Reaction times, pupil sizes and accuracies
+
+```{r dat2, include=FALSE}
+
+m.pal  = readRDS(file.path(brms_dir, "m_pal.rds"))
+m.pup = readRDS(file.path(brms_dir, "m_pup.rds"))
+aov.acc = readRDS(file.path(brms_dir, "aov_acc.rds"))
+
+bf.acc = aov.acc@bayesFactor %>% arrange(desc(bf))
+
+# hypotheses
+h1b = hypothesis(m.pal, "0 < diagnosis1:expected1")
+h1d.1 = hypothesis(m.pal, "diagnosis1:phase1 - diagnosis1:phase2 < 0")
+h1d.2 = hypothesis(m.pal, "2*diagnosis1:phase1 + 4*diagnosis1:phase2 < 0")
+e2.1 = hypothesis(m.pal, "0 < -2*expected1", alpha = 0.025)
+e2.6 = hypothesis(m.pal, "0 < -2*difficulty1 - difficulty2", alpha = 0.025)
+
+h2a = hypothesis(m.pup, "0 < diagnosis1:expected1")
+
+# create accuracies dataframe
+load("../data/PAL-ASD_data.RData")
+df.acc = df.tsk %>% filter(expected != "neutral") %>% droplevels() %>%
+  group_by(subID, diagnosis, phase, expected, difficulty) %>%
+  summarise(acc = mean(acc)*100)
+
+df.diagnosis = df.acc %>% 
+  group_by(diagnosis) %>% 
+  summarise(mean_accuracy = mean(acc, na.rm = T), 
+            sd_accuracy = sd(acc, na.rm = T))
+
+df.expected = df.acc %>% 
+  group_by(expected) %>% 
+  summarise(mean_accuracy = mean(acc, na.rm = T), 
+            sd_accuracy = sd(acc, na.rm = T))
+
+df.difficulty = df.acc %>% 
+  group_by(difficulty) %>% 
+  summarise(mean_accuracy = mean(acc, na.rm = T), 
+            sd_accuracy = sd(acc, na.rm = T))
+
+## extract predicted differences in ms instead of log data
+df.new = df.tsk %>% filter(expected != "neutral") %>% droplevels() %>% 
+  select(diagnosis, phase, expected, difficulty) %>% 
+  distinct() %>%
+  mutate(
+    condition = paste(diagnosis, phase, expected, difficulty, sep = "_")
+  )
+df.ms = as.data.frame(
+  fitted(m.pal, summary = F, 
+               newdata = df.new %>% select(diagnosis, phase, expected, difficulty), 
+               re_formula = NA))
+colnames(df.ms) = df.new$condition
+
+# calculate our difference columns
+df.ms = df.ms %>%
+  mutate(
+    COMP_unexp_exp    = rowMeans(across(matches("COMP_.*_unexpected_.*"))) - 
+      rowMeans(across(matches("COMP_.*_expected_.*"))),
+    ASD_unexp_exp     = rowMeans(across(matches("ASD_.*_unexpected_.*")))  - 
+      rowMeans(across(matches("ASD_.*_expected_.*"))),
+    `h1b_COMP-ASD unexpected-expected`  = COMP_unexp_exp - ASD_unexp_exp,
+    `h1d_ASD-COMP volatile-prevolatile` = 
+      (rowMeans(across(matches("ASD_volatile_.*"))) - rowMeans(across(matches("ASD_prevolatile_.*")))) - (rowMeans(across(matches("COMP_volatile_.*"))) - rowMeans(across(matches("COMP_prevolatile_.*")))),
+    `h1d_ASD-COMP postvolatile-volatile` = 
+      (rowMeans(across(matches("ASD_postvolatile_.*"))) - rowMeans(across(matches("ASD_volatile_.*")))) - (rowMeans(across(matches("COMP_postvolatile_.*"))) - rowMeans(across(matches("COMP_volatile_.*")))),
+    `e21_unexpected-expected`           = rowMeans(across(matches(".*_unexpected_.*"))) - 
+      rowMeans(across(matches(".*_expected_.*"))),
+    `e26_difficult-easy`     = rowMeans(across(matches(".*_difficult"))) - 
+      rowMeans(across(matches(".*_easy")))
+  )
+
+equ.pal = equivalence_test(df.ms %>% select(starts_with("h")),
+                 range = rope_range(m.pal))
+
+df.eff.pal = as_draws_df(m.pal) %>%
+  mutate(across(starts_with("sd")|starts_with("sigma"), ~.^2)) %>%
+  mutate(
+    sumvar = sqrt(rowSums(select(., starts_with("sd")|starts_with("sigma")))),
+    h1b    = 4*`b_diagnosis1:expected1` / sumvar,
+    h1d.1  = 2*(`b_diagnosis1:phase1` - `b_diagnosis1:phase2`) / sumvar,
+    h1d.2  = 2*(`b_diagnosis1:phase1` + 2*`b_diagnosis1:phase2`) / sumvar,
+    e.exp  = 2*b_expected1 / sumvar,
+    e.dif  = -(-2*b_difficulty1 - b_difficulty2) / sumvar
+  ) %>% select(starts_with("e.")|starts_with("h")) %>%
+  pivot_longer(cols = everything(), values_to = "estimate") %>%
+  group_by(name) %>%
+  summarise(
+    ci.lo = lower_ci(estimate),
+    mean  = mean(estimate),
+    ci.hi = upper_ci(estimate),
+    interpret = interpret_cohens_d(mean)
+  )
+
+# pup stuff
+df.new = m.pup$data %>% 
+  select(diagnosis, expected, rts) %>% 
+  distinct() %>%
+  mutate(
+    condition = paste(diagnosis, expected, rts, sep = "_")
+  )
+df.ms = as.data.frame(
+  fitted(m.pup, summary = F, 
+               newdata = df.new %>% select(diagnosis, expected, rts), 
+               re_formula = NA))
+colnames(df.ms) = df.new$condition
+
+# calculate our difference columns
+df.ms = df.ms %>%
+  mutate(
+    COMP_expectancy   = rowMeans(across(matches("COMP_expected_.*"))) - 
+      rowMeans(across(matches("COMP_unexpected_.*"))),
+    ASD_expectancy    = rowMeans(across(matches("ASD_expected_.*"))) -
+      rowMeans(across(matches("ASD_unexpected_.*"))),
+    h2a               = COMP_expectancy - ASD_expectancy
+    )
+
+equ.pup = equivalence_test(df.ms %>% select(starts_with("e_") | starts_with("h")),
+                 range = rope_range(m.pup))
+
+df.eff.pup = as_draws_df(m.pup) %>%
+  mutate(
+    sumvar = sqrt(sigma^2 + sd_subID__Intercept^2),
+    h2a    = 4*`b_diagnosis1:expected1` / sumvar
+  ) %>% select(starts_with("e.")|starts_with("h")) %>%
+  pivot_longer(cols = everything(), values_to = "estimate") %>%
+  group_by(name) %>%
+  summarise(
+    ci.lo = lower_ci(estimate),
+    mean  = mean(estimate),
+    ci.hi = upper_ci(estimate),
+    interpret = interpret_cohens_d(mean)
+  )
+
+```
+
+There was no credible evidence for differences between autistic and comparison adults with regards to the effect of expectancy (*estimate* = `r round(h1b$hypothesis$Estimate,2)` [`r round(h1b$hypothesis$CI.Lower,2)`, `r round(h1b$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h1b$hypothesis$Post.Prob*100,2)`%, *δ* = `r round(df.eff.pal[df.eff.pal$name == "h1b",]$mean, 3)` [`r round(df.eff.pal[df.eff.pal$name == "h1b",]$ci.lo, 3)`, `r round(df.eff.pal[df.eff.pal$name == "h1b",]$ci.hi, 3)`], inside ROPE = `r round(equ.pal$ROPE_Percentage[1]*100, 2)`%, HDI = [`r round(equ.pal$HDI_low[1], 2)`, `r round(equ.pal$HDI_high[1], 2)`], see [!Figure 1]) or transition effects (prevolatile to volatile: *estimate* = `r round(h1d.1$hypothesis$Estimate,2)` [`r round(h1d.1$hypothesis$CI.Lower,2)`, `r round(h1d.1$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h1d.1$hypothesis$Post.Prob*100,2)`%, *δ* = `r round(df.eff.pal[df.eff.pal$name == "h1d.1",]$mean, 3)` [`r round(df.eff.pal[df.eff.pal$name == "h1d.1",]$ci.lo, 3)`, `r round(df.eff.pal[df.eff.pal$name == "h1d.1",]$ci.hi, 3)`], inside ROPE = `r round(equ.pal$ROPE_Percentage[2]*100, 2)`%, HDI = [`r round(equ.pal$HDI_low[2], 2)`, `r round(equ.pal$HDI_high[2], 2)`]; volatile to postvolatile: *estimate* = `r round(h1d.2$hypothesis$Estimate,2)` [`r round(h1d.2$hypothesis$CI.Lower,2)`, `r round(h1d.2$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h1d.2$hypothesis$Post.Prob*100,2)`%, *δ* = `r round(df.eff.pal[df.eff.pal$name == "h1d.2",]$mean, 3)` [`r round(df.eff.pal[df.eff.pal$name == "h1d.2",]$ci.lo, 3)`, `r round(df.eff.pal[df.eff.pal$name == "h1d.2",]$ci.hi, 3)`], inside ROPE = `r round(equ.pal$ROPE_Percentage[3]*100, 2)`%, HDI = [`r round(equ.pal$HDI_low[3], 2)`, `r round(equ.pal$HDI_high[3], 2)`]) based on reaction times. Similarly, there was `r interpret_PP(h2a$hypothesis$Post.Prob)` credible difference in the effect of expectancy on pupil sizes in autistic compared to non-autistic adults (*estimate* = `r round(h2a$hypothesis$Estimate,2)` [`r round(h2a$hypothesis$CI.Lower,2)`, `r round(h2a$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h2a$hypothesis$Post.Prob*100,2)`%, *δ* = `r round(df.eff.pup[df.eff.pup$name == "h2a",]$mean, 3)` [`r round(df.eff.pup[df.eff.pup$name == "h2a",]$ci.lo, 3)`, `r round(df.eff.pup[df.eff.pup$name == "h2a",]$ci.hi, 3)`]), in contrast to our hypothesis. Across groups, there was `r interpret_PP(e2.1$hypothesis$Post.Prob)` evidence that expected trials led to faster responses than unexpected trials (*estimate* = `r round(e2.1$hypothesis$Estimate,2)` [`r round(e2.1$hypothesis$CI.Lower,2)`, `r round(e2.1$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(e2.1$hypothesis$Post.Prob*100,2)`%, *δ* = `r round(df.eff.pal[df.eff.pal$name == "e.exp",]$mean, 3)` [`r round(df.eff.pal[df.eff.pal$name == "e.exp",]$ci.lo, 3)`, `r round(df.eff.pal[df.eff.pal$name == "e.exp",]$ci.hi, 3)`]) and easy expressions led to faster responses than difficult expressions (*estimate* = `r round(e2.6$hypothesis$Estimate,2)` [`r round(e2.6$hypothesis$CI.Lower,2)`, `r round(e2.6$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(e2.6$hypothesis$Post.Prob*100,2)`%, *δ* = `r round(df.eff.pal[df.eff.pal$name == "e.dif",]$mean, 3)` [`r round(df.eff.pal[df.eff.pal$name == "e.dif",]$ci.lo, 3)`, `r round(df.eff.pal[df.eff.pal$name == "e.dif",]$ci.hi, 3)`]), suggesting that our task manipulations were successful.
+
+Accuracies were generally high, with a grand average of `r round(mean(df.acc$acc),1)`% accurate responses across diagnostic groups. An explorative Bayesian ANOVA of the ranked accuracies revealed influences of group, expectancy and difficulty but no interaction effects (log(*BF*) = `r round(bf.acc$bf[1],2)`). Accuracies were higher in the comparison than the autistic group (ASD: `r round(df.diagnosis[df.diagnosis$diagnosis == "ASD",]$mean_accuracy,1)` ± `r round(df.diagnosis[df.diagnosis$diagnosis == "ASD",]$sd_accuracy,1)`%; COMP: `r round(df.diagnosis[df.diagnosis$diagnosis == "COMP",]$mean_accuracy,1)` ± `r round(df.diagnosis[df.diagnosis$diagnosis == "COMP",]$sd_accuracy,1)`%) and in the expected than the unexpected trials (expected: `r round(df.expected[df.expected$expected == "expected",]$mean_accuracy,1)` ± `r round(df.expected[df.expected$expected == "expected",]$sd_accuracy,1)`%; unexpected: `r round(df.expected[df.expected$expected == "unexpected",]$mean_accuracy,1)` ± `r round(df.expected[df.expected$expected == "unexpected",]$sd_accuracy,1)`%). Furthermore, accuracies were lower in the difficult condition (easy: `r round(df.difficulty[df.difficulty$difficulty == "easy",]$mean_accuracy,1)` ± `r round(df.difficulty[df.difficulty$difficulty == "easy",]$sd_accuracy,1)`%; hard: `r round(df.difficulty[df.difficulty$difficulty == "difficult",]$mean_accuracy,1)` ± `r round(df.difficulty[df.difficulty$difficulty == "difficult",]$sd_accuracy,1)`%).

@@ -1,8 +1,0 @@
-population-level,bf.log,priors
-diagnosis,-0.1826,chosen
-diagnosis,-0.6997,sdx2
-diagnosis,-1.8234,sdx4
-diagnosis,-3.5188,sdx8
-diagnosis,0.0062,sdx0.5
-diagnosis,0.0733,sdx0.25
-diagnosis,0.0998,sdx0.125

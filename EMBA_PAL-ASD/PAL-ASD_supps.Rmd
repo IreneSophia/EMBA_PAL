@@ -1,0 +1,422 @@
+---
+title: "Supplementary materials"
+subtitle: 'Revisiting the Bayesian Brain: predictive processes of facial emotion recognition in autism'
+author: "Plank et al."
+date: "`r Sys.Date()`"
+output: 
+  pdf_document:
+    toc: true
+    number_sections: true
+    latex_engine: xelatex
+fontsize: 10pt
+geometry: margin=0.5in
+header-includes:
+# Add the S before section and table numbers
+- \renewcommand{\thesection}{S\arabic{section}}
+- \renewcommand{\thetable}{S\arabic{table}} 
+---
+
+```{r setup, include=FALSE}
+
+# clear global environment
+rm(list=ls())
+
+knitr::opts_chunk$set(echo = T, fig.pos = "center",
+                      fig.width = 7.5, fig.height = 4, 
+                      echo=FALSE, message=F)
+
+ls.packages = c("knitr",# kable
+    "ggplot2",          # plots
+    "brms",             # Bayesian lmms
+    "designr",          # simLMM
+    "bridgesampling",   # bridge_sampler
+    "tidyverse",        # tibble stuff
+    "ggpubr",           # ggarrange
+    "ggrain",           # geom_rain
+    "bayesplot",        # plots for posterior predictive checks
+    "SBC",              # plots for checking computational faithfulness
+    "rstatix",          # anova
+    "BayesFactor", 
+    "effectsize",
+    "bayestestR"        # equivalence_test
+)
+
+lapply(ls.packages, library, character.only=TRUE)
+
+# Setup caching of results
+brms_dir = "./_brms_models"
+
+# confidence interval functions
+lower_ci = function(var) {
+  unname(quantile(var, probs = 0.025))
+}
+upper_ci = function(var) {
+  unname(quantile(var, probs = 0.975))
+}
+
+# scale function for vector
+scale_this = function(x){
+  (x - mean(x, na.rm=TRUE)) / sd(x, na.rm=TRUE)
+}
+
+# graph settings 
+c_light = "#a9afb2"; c_light_highlight = "#8ea5b2"; c_mid = "#6b98b2" 
+c_mid_highlight = "#3585b2"; c_dark = "#0072b2"; c_dark_highlight = "#0058b2" 
+c_green = "#009E73"
+sz = 1
+a = 0.5
+
+# custom colour palette
+col.grp = c("#004D40", "#1E88E5")
+col.cnd = c("#5D3A9B", "#E66100")
+
+# set the seed
+set.seed(2468)
+
+```
+
+<style type="text/css">
+  .main-container {
+    max-width: 1100px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+</style>
+
+# Package versions
+
+The following packages are used in this RMarkdown file: 
+  
+```{r lib_versions, echo=F}
+
+print(R.Version()$version.string)
+
+for (package in ls.packages) {
+  print(sprintf("%s version %s", package, packageVersion(package)))
+}
+
+```
+
+# Model evaluation
+
+## Posterior predictive checks for HGF
+
+```{r eval1, fig.height=6}
+
+col = c("#40B0A6", "#E1BE6A")
+sz  = 3
+
+df.sim = read_csv(file.path("HGF_results", "main", "ppc_data_HGF-L17.csv")) %>% 
+  group_by(subID, trl) %>%
+  summarise(
+    simulated = mean(exp(yhat))
+  )
+
+load("../data/PAL-ASD_data.RData")
+
+df = merge(df.tsk, df.sim) %>%
+  mutate(difficulty = if_else(difficulty == "difficult", "hard", difficulty),
+         difficulty = factor(difficulty, levels = c("easy", "medium", "hard"))) %>%
+  filter(expected != "neutral") %>% droplevels()
+
+# expectancy
+p1 = df %>% rename("data" = "rt.cor") %>% 
+  pivot_longer(cols = c(data, simulated), names_to = "type") %>%
+  group_by(subID, diagnosis, type, expected) %>%
+  summarise(value = median(value, na.rm = T)) %>%
+  group_by(diagnosis, type, expected) %>%
+  summarise(
+    rt.mn = mean(value),
+    rt.se = sd(value)/sqrt(n())
+  ) %>%
+  ggplot(aes(y = rt.mn, x = expected, 
+             group = type, colour = type)) +
+  geom_line(position = position_dodge(0.4), linewidth = 1) +
+  geom_errorbar(aes(ymin = rt.mn - rt.se, 
+                    ymax = rt.mn + rt.se), linewidth = 1, width = 0.5, 
+                position = position_dodge(0.4)) + 
+  geom_point(position = position_dodge(0.4), size = sz) + 
+  labs (x = "", y = "rt (ms)") +
+  ylim(515, 665) + 
+  scale_fill_manual(values = col) +
+  scale_color_manual(values = col) +
+  facet_wrap(. ~ diagnosis, nrow = 2) + 
+  theme_bw() + 
+  theme(legend.position.inside = c(0.5, 0.6), 
+        legend.position = "inside", legend.direction = "horizontal",
+        legend.title = element_blank(),
+        plot.title = element_text(hjust = 0.5))
+
+# difficulty
+p2 = df %>% rename("data" = "rt.cor") %>% 
+  pivot_longer(cols = c(data, simulated), names_to = "type") %>%
+  group_by(subID, diagnosis, type, difficulty) %>%
+  summarise(value = median(value, na.rm = T)) %>%
+  group_by(diagnosis, type, difficulty) %>%
+  summarise(
+    rt.mn = mean(value),
+    rt.se = sd(value)/sqrt(n())
+  ) %>%
+  ggplot(aes(y = rt.mn, x = difficulty, 
+             group = type, colour = type)) +
+  geom_line(position = position_dodge(0.4), linewidth = 1) +
+  geom_errorbar(aes(ymin = rt.mn - rt.se, 
+                    ymax = rt.mn + rt.se), linewidth = 1, width = 0.5, 
+                position = position_dodge(0.4)) + 
+  geom_point(position = position_dodge(0.4), size = sz) + 
+  ylim(515, 665) + 
+  labs (x = "", y = "") + 
+  facet_wrap(. ~ diagnosis, nrow = 2) + 
+  scale_fill_manual(values = col) +
+  scale_color_manual(values = col) +
+  theme_bw() + 
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5))
+
+
+# phase
+p3 = df %>% rename("data" = "rt.cor") %>% 
+  pivot_longer(cols = c(data, simulated), names_to = "type") %>%
+  group_by(subID, diagnosis, type, phase) %>%
+  summarise(value = median(value, na.rm = T)) %>%
+  group_by(diagnosis, type, phase) %>%
+  summarise(
+    rt.mn = mean(value),
+    rt.se = sd(value)/sqrt(n())
+  ) %>%
+  ggplot(aes(y = rt.mn, x = phase, 
+             group = type, colour = type)) +
+  geom_line(position = position_dodge(0.4), linewidth = 1) +
+  geom_errorbar(aes(ymin = rt.mn - rt.se, 
+                    ymax = rt.mn + rt.se), linewidth = 1, width = 0.5, 
+                position = position_dodge(0.4)) + 
+  geom_point(position = position_dodge(0.4), size = sz) + 
+  labs (x = "", y = "") + 
+  ylim(515, 665) + 
+  facet_wrap(. ~ diagnosis, nrow = 2) + 
+  scale_fill_manual(values = col) +
+  scale_color_manual(values = col) +
+  theme_bw() + 
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5))
+
+
+p = ggarrange(p1, p2, p3, 
+              nrow = 1, ncol = 3)
+annotate_figure(p, top = text_grob("Posterior predictive checks: HGF", 
+                                   face = "bold", size = 14))
+
+```
+
+## Comparison of LME across groups
+
+```{r eval2}
+
+aov = readRDS(file.path(brms_dir, "aov_lme.rds"))
+
+aov@denominator
+
+kable(aov@bayesFactor)
+
+```
+
+
+# Volatility parameters and learning rate updates
+
+## Phasic volatility
+
+```{r hgf1}
+
+m = readRDS(file.path(brms_dir, "m_hgf_vol.rds"))
+
+summary(m)
+
+```
+
+## Environmental tonic volatility
+
+```{r hgf2}
+
+m = readRDS(file.path(brms_dir, "m_hgf_om3.rds"))
+
+summary(m)
+
+```
+
+## Bernoulli model with HGF parameters
+
+
+```{r hgf3}
+
+m = readRDS(file.path(brms_dir, "m_hgf_bern.rds"))
+
+summary(m)
+
+```
+
+## Learning rate updates
+
+```{r hgf4}
+
+m = readRDS(file.path(brms_dir, "m_hgf_alpha.rds"))
+
+summary(m)
+
+```
+
+### Posterior predictive checks
+
+```{r hgf5, fig.height=6}
+
+# get posterior predictions
+post.pred = posterior_predict(m, ndraws = 500)
+
+# check the fit of the predicted data compared to the real data
+p1 = pp_check(m, ndraws = 500) + 
+  theme_bw() + theme(legend.position = "none") + xlim(0, 0.50)
+
+# distributions of means compared to the real values per group
+p2 = ppc_stat_grouped(m$data$value, post.pred, m$data$diagnosis) + 
+  theme_bw() + theme(legend.position = "none")
+p3 = ppc_stat_grouped(m$data$value, post.pred, m$data$level) + 
+  theme_bw() + theme(legend.position = "none")
+p4 = ppc_stat_grouped(m$data$value, post.pred, m$data$change) + 
+  theme_bw() + theme(legend.position = "none")
+
+p = ggarrange(p1, p2, p3, p4,
+          nrow = 4, ncol = 1)
+annotate_figure(p, top = text_grob("Posterior predictive checks", 
+                                   face = "bold", size = 14))
+
+```
+
+### ANOVA of ranked learning rate updates
+
+```{r hgf6}
+
+aov = readRDS(file.path(brms_dir, "aov_alpha.rds"))
+
+aov@denominator
+
+kable(aov@bayesFactor %>% select(bf) %>% arrange(desc(bf)))
+
+```
+
+# Reaction times, pupil sizes and accuracies
+
+## Reaction times
+
+```{r rt}
+
+m = readRDS(file.path(brms_dir, "m_pal.rds"))
+
+summary(m)
+
+```
+
+```{r plot_rt, fig.height=10}
+
+# rain cloud plot including all factors
+
+m$data %>%
+  ggplot(aes(diagnosis, rt.cor, fill = expected, colour = expected)) + #
+  geom_rain(rain.side = 'r',
+boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
+violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
+boxplot.args.pos = list(
+  position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
+),
+point.args = list(show_guide = FALSE, alpha = .5),
+violin.args.pos = list(
+  width = 0.6, position = position_nudge(x = 0.16)),
+point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
+  scale_fill_manual(values = col.cnd) +
+  scale_color_manual(values = col.cnd) +
+  #ylim(0, 1) +
+  labs(title = "Reaction times per subject", x = "", y = "rt (ms)") +
+  facet_wrap(difficulty ~ phase) +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5), 
+        legend.direction = "horizontal", text = element_text(size = 15))
+
+```
+
+## Pupil sizes
+
+```{r pup}
+
+m = readRDS(file.path(brms_dir, "m_pup.rds"))
+
+summary(m)
+
+```
+
+
+```{r plot_pup, fig.height=4}
+
+# rain cloud plot
+m$data %>%
+  group_by(subID, diagnosis, expected) %>%
+  summarise(
+    rel_pupil = mean(rel_pupil)
+  ) %>%
+  ggplot(aes(diagnosis, rel_pupil, fill = expected, colour = expected)) + #
+  geom_rain(rain.side = 'r',
+boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
+violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
+boxplot.args.pos = list(
+  position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
+),
+point.args = list(show_guide = FALSE, alpha = .5),
+violin.args.pos = list(
+  width = 0.6, position = position_nudge(x = 0.16)),
+point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
+  scale_fill_manual(values = col.cnd) +
+  scale_color_manual(values = col.cnd) +
+  labs(title = "", x = "", y = "pupil size change (mm)") +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_blank(),
+        legend.direction = "horizontal", text = element_text(size = 15), 
+        legend.title = element_blank())
+
+```
+
+
+## Accuracies
+
+```{r acc}
+
+aov = readRDS(file.path(brms_dir, "aov_acc.rds"))
+
+aov@denominator
+
+kable(aov@bayesFactor %>% select(bf) %>% arrange(desc(bf)),
+      digits = 2)
+
+```
+
+
+```{r plot_acc, fig.height=10}
+
+# rain cloud plot including all factors
+
+aov@data %>%
+  ggplot(aes(expected, acc, fill = diagnosis, colour = diagnosis)) + #
+  geom_rain(rain.side = 'r',
+boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
+violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
+boxplot.args.pos = list(
+  position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
+),
+point.args = list(show_guide = FALSE, alpha = .5),
+violin.args.pos = list(
+  width = 0.6, position = position_nudge(x = 0.16)),
+point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
+  scale_fill_manual(values = col.grp) +
+  scale_color_manual(values = col.grp) +
+  labs(title = "Accuracies per subject", x = "", y = "accuracy (%)") +
+  facet_wrap(phase ~ difficulty) +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5), 
+        legend.direction = "horizontal", text = element_text(size = 15))
+
+```
+

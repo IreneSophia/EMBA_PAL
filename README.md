@@ -10,17 +10,16 @@ Participants also perform three additional paradigms: a dot-probe task to measur
 
 This repository is a work in progress. The scripts are continuously augmented.
 
-## How to run this analysis
+There are no hypotheses regarding the comparison of adults with ADHD or ASD. Thus, we separate the analysis into two folders: 
 
-This repository includes scripts for the presentation of the paradigm, preprocessing of the data and analysis. Due to privacy issues, we only share preprocessed and anonymised data. Since one of the models is too large to upload on github, it needs to be downloaded from here: https://osf.io/krp4s/files/osfstorage. The model must be saved in the `brms_models` folder. Only if this model is downloade, we can guarantee that these scripts can be run: 
+* `EMBA_PAL_ASD`
+* `EMDA_PAL_ADHD`
 
-* `S1_brms-analyses_PAL.Rmd` : behavioural analysis > run this first
-* `S2_brms-analyses_PAL-PUP.Rmd` : pupil size analysis
-* `S4_brms-analyses_PAL-HGF.Rmd` : analysis of the Hierarchical Gaussian Filter (HGF) parameters
+All scripts and functions that are used in both analyses are found in this main folder including scripts for the presentation of the paradigm and preprocessing of the data as well as anonymised data. Due to privacy issues, we only share preprocessed pupil size data. 
 
-These scripts may use scripts from the `helpers` folder. There are some absolute paths in these scripts within if statements. Downloading everything in this repository should ensure that these are not executed. 
+We also share the results of the simulation-based calibrations - these were run for two groups, but should also apply to the same models with three groups included. **Rerunning these can take longer depending on the specific model.** Runtime of the scripts using the models and SBC shared in this repository should only take a few minutes. 
 
-We also share the models and the results of the simulation-based calibration. **Rerunning these, especially the SBC, can take days depending on the specific model.** Runtime of the scripts using the models and SBC shared in this repository should only take a few minutes. The scripts will create all relevant output that was used in the manuscript. If you need access to other data associated with this project or want to use the stimuli / paradigm, please contact the project lead (Irene Sophia Plank, 10planki@gmail.com). 
+If you need access to other data associated with this project or want to use the stimuli / paradigm, please contact the project lead (Irene Sophia Plank, 10planki@gmail.com). 
 
 ### Versions and installation
 
@@ -32,15 +31,11 @@ In this project, we used Python 3, MATLAB R2023a and R 4.4.3.
 
 ## Folder content
 
-* `_brms_models` : rds files of the final brms models and the ANOVA to be read into R
 * `_brms_SBC_cache` : results of the simulation-based calibration
-* `_brms_sens_cache` : results of the sensitivity analysis for the Bayes Factors
-* `data` : preprocessed and anonymised data as well as the results from the cross-validation to determine the samples used for the pupil size analysis
-* `EMBA_HGF` : Bayesian workflow for the HGF - these scripts are used by `S3_EMBA_HGF_main.m`
+* `data` : anonymised data as well as the results from the cross-validation to determine the samples used for the pupil size analysis
+* `EMBA_HGF` : workflow for the HGF application
 * `experiment` : scripts needed to present the experiment as well as the RMarkdown containing all information regarding the stimulus evaluation and selection
 * `helper` : scripts to run the simulation-based calibration via bash loops and the script containing the functions for the sensitivity analysis
-* `HGF_results` : results of the Bayesian workflow for HGF
-* `plots` : some of the plots created for the manuscript
 * `prepro` : scripts to preprocess the pupil sizes, the behavioural responses and the demographic as well as questionnaire information collected with CentraXX
 
 ## Project members

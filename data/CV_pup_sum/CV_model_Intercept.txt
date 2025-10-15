@@ -1,2 +1,0 @@
-fixed effects: rel_pupil ~ C(expected, Sum) + rts + __lmer_samples__
-random intercepts: subID

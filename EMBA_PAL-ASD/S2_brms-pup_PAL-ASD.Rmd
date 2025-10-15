@@ -1,0 +1,453 @@
+---
+title: "S2: analysis of pupil sizes with brms"
+author: "I. S. Plank"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+fontsize: 10pt
+#geometry: margin=0.5in
+---
+  
+```{r settings, include=FALSE}
+
+knitr::opts_chunk$set(echo = T, warning = F, message = F, fig.align = 'center', fig.width = 7.4)
+ls.packages = c("knitr",# kable
+    "ggplot2",          # plots
+    "brms",             # Bayesian lmms
+    "designr",          # simLMM
+    "bridgesampling",   # bridge_sampler
+    "tidyverse",        # tibble stuff
+    "ggpubr",           # ggarrange
+    "ggrain",           # geom_rain
+    "bayesplot",        # plots for posterior predictive checks
+    "SBC",              # plots for checking computational faithfulness
+    "rstatix",          # anova
+    "effectsize",       # interpret_bf
+    "BayesFactor", 
+    "bayestestR"        # equivalence_test
+)
+
+lapply(ls.packages, library, character.only=TRUE)
+
+# set cores
+options(mc.cores = parallel::detectCores())
+
+# set options for SBC
+use_cmdstanr = getOption("SBC.vignettes_cmdstanr", TRUE) # Set to false to use rstan instead
+options(brms.backend = "cmdstanr")
+
+# using parallel processing
+library(future)
+plan(multisession)
+
+# Setup caching of results
+brms_dir = "./_brms_models"
+if(!dir.exists(brms_dir)) {
+  dir.create(brms_dir)
+}
+
+# load helper functions
+source('../helper/fun_bf-sens.R')
+
+lower_ci = function(var) {
+  unname(quantile(var, probs = 0.025))
+}
+upper_ci = function(var) {
+  unname(quantile(var, probs = 0.975))
+}
+
+# graph settings 
+c_light = "#a9afb2"; c_light_highlight = "#8ea5b2"; c_mid = "#6b98b2" 
+c_mid_highlight = "#3585b2"; c_dark = "#0072b2"; c_dark_highlight = "#0058b2" 
+c_green = "#009E73"
+sz = 1
+a = 0.5
+
+# custom colour palette
+col.grp = c("#004D40", "#1E88E5")
+col.cnd = c("#5D3A9B", "#E66100")
+
+```
+
+<style type="text/css">
+  .main-container {
+    max-width: 1100px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+</style>
+  
+# Introduction
+  
+This R Markdown script analyses pupil size data from adults with ASD and adults without any psychiatric diagnosis from the PAL (probabilistic associative learning) task of the EMBA project. The data was preprocessed and then selected based on a cross-validation procedure before being read into this script. 
+
+## Some general settings
+
+```{r set}
+
+# number of simulations
+nsim = 250
+
+# set number of iterations and warmup for models
+iter = 6000
+warm = 1500
+
+# set the maximum treedepth
+max_depth = 15
+
+# set the seed
+set.seed(2468)
+
+```
+
+## Package versions
+
+The following packages are used in this RMarkdown file: 
+  
+```{r lib_versions, echo=F}
+
+print(R.Version()$version.string)
+
+for (package in ls.packages) {
+  print(sprintf("%s version %s", package, packageVersion(package)))
+}
+
+```
+
+## Introduction
+
+We planned to determine the group-level effect subjects following Barr (2013). For each model, experiment specific priors were set based on previous literature or the task (see comments in the code).
+
+## Preparation
+
+First, we load the data and print how many participants in each group. 
+
+```{r prep}
+
+# load the behavioural data
+load("../data/PAL-ASD_data.RData")
+
+# load the pupil size data and the diagnosis
+df = read_csv(file.path('../data', 'ASD_CV_pup_sum', "CV_data_C(expected, Sum)[S.expected].csv"),
+              show_col_types = F) %>%
+  merge(., df.tsk %>% select(subID, diagnosis) %>% distinct(),
+        all = T) %>%
+  drop_na() %>% droplevels() %>%
+  mutate_if(is.character, as.factor)
+
+# load the time window information for the LMM betas
+df.agg = read_csv(file.path('../data', 'PAL-ASD-ET_lm-betas.csv')) %>%
+  mutate_if(is.character, as.factor)
+
+# print the number of participants per group
+kable(df %>% select(subID, diagnosis) %>% distinct() %>% group_by(diagnosis) %>% count())
+
+# print the contrasts
+contrasts(df$diagnosis) = contr.sum(2)
+contrasts(df$diagnosis)
+contrasts(df$expected)  = contr.sum(2)
+contrasts(df$expected)
+
+
+contrasts(df.agg$diagnosis) = contr.sum(2)
+contrasts(df.agg$diagnosis)
+
+```
+
+# Pupil size extracted using CV
+
+## Model setup
+
+```{r model_pup}
+
+# model formula
+f.pup = brms::bf(rel_pupil ~ diagnosis * expected + rts + 
+                   (1 | subID)
+                 )
+
+# set weakly informative priors
+priors = c(
+  prior(normal(0,    0.10),  class = Intercept),
+  prior(normal(0.15, 0.15),  class = sigma),
+  prior(normal(0.15, 0.15),  class = sd),
+  prior(normal(0,    0.05),  class = b)
+)
+
+kable(priors)
+
+```
+
+## Posterior predictive checks
+
+As the next step, we fit the model, check whether there are divergence or rhat issues, and then check whether the chains have converged.
+
+```{r postpc_pup1, fig.height=2, message=T}
+
+# fit the final model
+m.pup = brm(f.pup, seed = 6644,
+            df, prior = priors,
+            iter = iter, warmup = warm,
+            init = 0.1, 
+            control = list(max_treedepth = max_depth),
+            backend = "cmdstanr", threads = threading(2),
+            file = file.path(brms_dir, "m_pup"),
+            save_pars = save_pars(all = TRUE)
+            )
+rstan::check_divergences(m.pup$fit)
+rstan::check_energy(m.pup$fit)
+
+# check_treedepth takes treedepth 10 which we already increased, 
+# so we check this manually
+sparams  = rstan::get_sampler_params(m.pup$fit, inc_warmup = FALSE)
+exceedtd = do.call(rbind, sparams)[, "treedepth__"] >= max_depth
+message(
+      sprintf('%s of %s iterations saturated the maximum tree depth of %s (%.3f%%).',
+              sum(exceedtd), 
+              length(exceedtd), 
+              max_depth, 
+              100 * sum(exceedtd) / length(exceedtd))
+    )
+
+# check that rhats are below 1.01
+sum(brms::rhat(m.pup) >= 1.01, na.rm = T)
+
+# check the trace plots
+post.draws = as_draws_df(m.pup)
+mcmc_trace(post.draws, regex_pars = "^b_",
+           facet_args = list(ncol = 5)) +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3))
+
+```
+
+This model has no pathological behaviour with E-BFMI, no divergent sample and no rhats that are higher or equal to 1.01. Furthermore, there are no iterations where the maximum treedepth is exceeded. Therefore, we go ahead and perform our posterior predictive checks. 
+
+```{r postpc_pup2, fig.height=6}
+
+# get posterior predictions
+post.pred = posterior_predict(m.pup, ndraws = nsim)
+
+# check the fit of the predicted data compared to the real data
+p1 = pp_check(m.pup, ndraws = nsim) + 
+  theme_bw() + theme(legend.position = "none")
+
+# distributions of means compared to the real values per group
+p2 = ppc_stat_grouped(df$rel_pupil, post.pred, df$diagnosis) + 
+  theme_bw() + theme(legend.position = "none")
+
+# distributions of means compared to the real values per group
+p3 = ppc_stat_grouped(df$rel_pupil, post.pred, df$expected) + 
+  theme_bw() + theme(legend.position = "none")
+
+p = ggarrange(p1, p2, p3,
+          nrow = 3, ncol = 1, labels = "AUTO")
+annotate_figure(p, top = text_grob("Posterior predictive checks: pupil sizes",
+                                   face = "bold", size = 14))
+
+```
+
+The simulated data based on the model fits well with the real data. 
+
+## Inferences
+
+Now that we are convinced that we can trust our model, we have a look at its estimate and use the hypothesis function to assess our hypothesis and explore the data. 
+
+```{r inf_pup, fig.height=6}
+
+# print a summary
+summary(m.pup)
+
+# plot the posterior distributions
+post.draws %>% 
+  select(starts_with("b_"), -b_rts) %>%
+  pivot_longer(cols = starts_with("b_"), names_to = "coef", values_to = "estimate") %>%
+  subset(!startsWith(coef, "b_Int")) %>%
+  mutate(
+    coef = substr(coef, 3, nchar(coef)),
+    coef = str_replace_all(coef, ":", " x "),
+    coef = str_replace_all(coef, "diagnosis1", "ASD"),
+    coef = str_replace_all(coef, "expected1", "expected"),
+    coef = fct_reorder(coef, desc(estimate))
+  ) %>% 
+  group_by(coef) %>%
+  mutate(
+    cred = case_when(
+      (mean(estimate) < 0 & quantile(estimate, probs = 0.975) < 0) |
+        (mean(estimate) > 0 & quantile(estimate, probs = 0.025) > 0) ~ "credible",
+      T ~ "not credible"
+    )
+  ) %>% ungroup() %>%
+  ggplot(aes(x = estimate, y = coef, fill = cred)) +
+  geom_vline(xintercept = 0, linetype = 'dashed') +
+  ggdist::stat_halfeye(alpha = 0.7) + ylab(NULL) + theme_bw() +
+  scale_fill_manual(values = c(credible = c_dark, c_light)) + theme(legend.position = "none")
+
+# get the design matrix to figure out how to set the contrasts
+df.des = cbind(df, model.matrix(~ diagnosis * expected, data = df)) %>%
+  select(starts_with("diagn") | starts_with("expect")) %>% distinct() %>%
+  relocate(diagnosis, expected)
+
+# explore expectancy effect
+e.exp = hypothesis(m.pup, "0 > 2*expected1", alpha = 0.025)
+e.exp
+
+# explore group effect
+e.grp = hypothesis(m.pup, "0 > -2*diagnosis1", alpha = 0.025)
+e.grp
+
+# H2a: COMP(unexp - exp) > ASD(unexp - exp)
+t(df.des %>% 
+    group_by(diagnosis) %>%
+    summarise(across(where(is.numeric), ~ diff(.x))) %>% # unexpected - expected
+    arrange(diagnosis) %>%
+    select(where(is.numeric)) %>%
+    map_df(~ diff(.x))) # COMP(unexpected - expected) - ASD(unexpected - expected)
+
+h2a = hypothesis(m.pup, "0 < diagnosis1:expected1")
+h2a
+
+## extract predicted differences
+df.new = df %>% 
+  select(diagnosis, expected, rts) %>% 
+  distinct() %>%
+  mutate(
+    condition = paste(diagnosis, expected, rts, sep = "_")
+  )
+df.ms = as.data.frame(
+  fitted(m.pup, summary = F, 
+               newdata = df.new %>% select(diagnosis, expected, rts), 
+               re_formula = NA))
+colnames(df.ms) = df.new$condition
+
+# calculate our difference columns
+df.ms = df.ms %>%
+  mutate(
+    COMP_expectancy   = rowMeans(across(matches("COMP_expected_.*"))) - 
+      rowMeans(across(matches("COMP_unexpected_.*"))),
+    ASD_expectancy    = rowMeans(across(matches("ASD_expected_.*"))) -
+      rowMeans(across(matches("ASD_unexpected_.*"))),
+    h2a               = COMP_expectancy - ASD_expectancy
+    )
+
+kable(df.ms %>% 
+  select(COMP_expectancy, ASD_expectancy) %>% 
+  summarise_all(list(lower_ci = lower_ci, mean = mean, upper_ci = upper_ci)) %>%
+  t %>% 
+  as.data.frame %>% 
+  rownames_to_column() %>%
+  separate(rowname, into = c("group", "effect", "stat"), sep = "_") %>%
+  pivot_wider(names_from = stat, values_from = V1), digits = 2)
+
+equivalence_test(df.ms %>% select(starts_with("e_") | starts_with("h")),
+                 range = rope_range(m.pup))
+
+# calculate effect sizes
+df.effect = post.draws %>%
+  mutate(
+    sumvar = sqrt(sigma^2 + sd_subID__Intercept^2),
+    h2a    = 4*`b_diagnosis1:expected1` / sumvar
+  )
+
+kable(df.effect %>% select(h2a) %>%
+        pivot_longer(cols = everything(), values_to = "estimate") %>%
+        group_by(name) %>%
+        summarise(
+          ci.lo = lower_ci(estimate),
+          mean  = mean(estimate),
+          ci.hi = upper_ci(estimate),
+          interpret = interpret_cohens_d(mean)
+        )
+)
+
+```
+
+H2a: *estimate* = `r round(h2a$hypothesis$Estimate,2)` [`r round(h2a$hypothesis$CI.Lower,2)`, `r round(h2a$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h2a$hypothesis$Post.Prob*100,2)`%
+
+expectancy: *estimate* = `r round(e.exp$hypothesis$Estimate,2)` [`r round(e.exp$hypothesis$CI.Lower,2)`, `r round(e.exp$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(e.exp$hypothesis$Post.Prob*100,2)`%
+
+group: *estimate* = `r round(e.grp$hypothesis$Estimate,2)` [`r round(e.grp$hypothesis$CI.Lower,2)`, `r round(e.grp$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(e.grp$hypothesis$Post.Prob*100,2)`%
+
+
+## Plots
+
+```{r plot_pup, fig.height=4}
+
+# rain cloud plot
+df %>%
+  group_by(subID, diagnosis, expected) %>%
+  summarise(
+    rel_pupil = mean(rel_pupil)
+  ) %>%
+  ggplot(aes(diagnosis, rel_pupil, fill = expected, colour = expected)) + #
+  geom_rain(rain.side = 'r',
+boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
+violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
+boxplot.args.pos = list(
+  position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
+),
+point.args = list(show_guide = FALSE, alpha = .5),
+violin.args.pos = list(
+  width = 0.6, position = position_nudge(x = 0.16)),
+point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
+  scale_fill_manual(values = col.cnd) +
+  scale_color_manual(values = col.cnd) +
+  labs(title = "", x = "", y = "pupil size change (mm)") +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_blank(),
+        legend.direction = "horizontal", text = element_text(size = 15), 
+        legend.title = element_blank())
+
+ggsave("plots/FigPUP.svg", units = "cm", width = 27, height = 9)
+
+
+```
+
+# Betas of predictors for pupil sizes
+
+Since we have no normal distribution and negative values, we are going to do t-test on the rank transformed data. 
+
+```{r model_beta}
+
+df.agg = df.agg %>% ungroup() %>%
+  mutate(rtiwo_eps3 = rank(tiwo_eps3), rtiwo_exp = rank(tiwo_exp))
+
+t.eps = ttestBF(x = df.agg[df.agg$diagnosis == "COMP",]$rtiwo_eps3,
+                y = df.agg[df.agg$diagnosis != "COMP",]$rtiwo_eps3)
+t.eps@bayesFactor
+
+t.exp = ttestBF(x = df.agg[df.agg$diagnosis == "COMP",]$rtiwo_exp,
+                y = df.agg[df.agg$diagnosis != "COMP",]$rtiwo_exp)
+t.exp@bayesFactor
+
+```
+
+
+## Plots
+
+```{r plot_beta, fig.height=4}
+
+# rain cloud plot
+df.agg %>%
+  pivot_longer(cols = c(tiwo_eps3, tiwo_exp)) %>%
+  ggplot(aes(name, value, fill = diagnosis, colour = diagnosis)) + #
+  geom_rain(rain.side = 'r',
+boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
+violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
+boxplot.args.pos = list(
+  position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
+),
+point.args = list(show_guide = FALSE, alpha = .5),
+violin.args.pos = list(
+  width = 0.6, position = position_nudge(x = 0.16)),
+point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
+  scale_fill_manual(values = col.cnd) +
+  scale_color_manual(values = col.cnd) +
+  labs(title = "", x = "", y = "pupil size change (mm)") +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_blank(),
+        legend.direction = "horizontal", text = element_text(size = 15), 
+        legend.title = element_blank())
+
+```

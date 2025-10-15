@@ -31,6 +31,9 @@ df_trl = pd.read_csv(path_data + '/PAL_scheme.csv',
 bsms  = 200  # baseline in ms
 trlms = 1800 # trial duraion in ms (face + response window)
 
+# sampling rate is 500Hz, total trial duration is 2000ms > 1000 samples per trial
+# gets downsampled to 100Hz, thus 200 samples per trial
+
 # initialise empty datamatrix
 dm = DataMatrix(length=0)
 
@@ -125,8 +128,11 @@ dm_subset = dm_subset.rts > 0
 
 # get rid of the baseline (200ms = 20 samples) and the pupil reflex to the faces
 sr  = 100
-ign = int((bsms+800)/(1000/sr))
+ign = int((bsms+800)/(1000/sr)) # how many SAMPLES to ignore
 dm_subset.rel_pupil = dm_subset.bsc_pupil[:, ign:]
+
+# 100 samples = 1000ms are ignored by this, thus from 1000 to 2000ms starting with tone
+# but from 800ms to 1800ms starting with face (150ms face and 1650ms response window)
 
 # rename to expected
 dm_subset.expected = dm_subset.exp
@@ -134,104 +140,29 @@ dm_subset.expected = dm_subset.exp
 # only keep relevant columns
 del dm_subset.artft, dm_subset.baseline, dm_subset.ds_pupil, dm_subset.trl, dm_subset.bsc_pupil
 del dm_subset.key, dm_subset.miss, dm_subset.pupil, dm_subset.z_baseline, dm_subset.exp
-dm_subset.column_names
 
-results = tst.lmer_crossvalidation_test(dm_subset, split=6,
-                                        formula='rel_pupil ~ expected + rts', 
-                                        groups='subID', winlen=10, 
-                                        con_formula='rel_pupil ~ C(expected, Sum) + rts',
-                                        out=path_data + 'CV_pup_sum'
-                                        )
+# do it separately for the two sub-projects (ASD vs. ADHD)
+ls_project = [('ASD_CV_pup_sum', {"ASD", "COMP"}), ('ADHD_CV_pup_sum', {"ADHD", "BOTH", "COMP"})]
 
-print(results)
+for project in ls_project:
 
-tst.save(results, path_data + 'CV_pup_sum/results.pkl')
+    dm_project = dm_subset.diagnosis == project[1]
 
-# plot the results with the included function
+    results = tst.lmer_crossvalidation_test(dm_project, split=6,
+                                            formula='rel_pupil ~ expected + rts',
+                                            groups='subID', winlen=10,
+                                            con_formula='rel_pupil ~ C(expected, Sum) + rts',
+                                            out=path_data + project[0]
+                                            )
 
-results = tst.load(path_data + 'CV_pup_sum/results.pkl')
+    print(results)
 
-tst.plot(dm_subset, dv='rel_pupil', hue_factor='expected', 
-         sampling_freq=100, results=results, x0 = ign/sr)
+    tst.save(results, path_data + project[0] + '/results.pkl')
+
+    # plot the results with the included function
+    tst.plot(dm_subset, dv='rel_pupil', hue_factor='expected',
+             sampling_freq=100, results=results, x0=ign / sr)
+
+    plt.show()
 
 
-####### USE LMS TO DETERMINE THE BETAS FOR EACH PARTICIPANT PER TIMEPOINT
-
-# load the relevant data
-dm = io.readpickle(path_out + 'PAL-ET.pkl')
-df_trj = pd.read_csv('/home/emba/Documents/EMBA/EMBA_PAL_scripts/HGF_results/main/eHGF-C_traj.csv')
-
-# merge HGF trial output with trial information
-df_trl = pd.merge(df_trj, df_trl, how="left")
-
-# get rid of unnecessary columns and rows
-del dm.artft, dm.baseline, dm.ds_pupil, dm.key, dm.miss, dm.pupil, dm.z_baseline
-dm = dm.exp == {"expected", "unexpected"}
-dm = dm.rts > 0
-
-# set the formula
-lm_form = 'rel_pupil ~ C(exp, Sum) + eps2 + eps3 + mu3 + C(emo, Sum) + C(difficulty, Sum) + rts'
-
-# trial duration
-dur = dm.bsc_pupil.shape[1]
-
-# initialise the datamatrix
-subIDs = list(set(dm.subID))
-dm_lms = DataMatrix(length=len(subIDs))
-dm_lms.subID   = subIDs
-dm_lms.b_Int   = MultiDimensionalColumn(shape=(dur,)) 
-dm_lms.b_exp   = MultiDimensionalColumn(shape=(dur,)) 
-dm_lms.b_emo   = MultiDimensionalColumn(shape=(dur,)) 
-dm_lms.b_diff1 = MultiDimensionalColumn(shape=(dur,)) 
-dm_lms.b_diff2 = MultiDimensionalColumn(shape=(dur,)) 
-dm_lms.b_eps2  = MultiDimensionalColumn(shape=(dur,)) 
-dm_lms.b_eps3  = MultiDimensionalColumn(shape=(dur,)) 
-dm_lms.b_mu3   = MultiDimensionalColumn(shape=(dur,)) 
-dm_lms.b_rts   = MultiDimensionalColumn(shape=(dur,)) 
-group = []
-i = 0
-
-# loop through the participants
-for subID in subIDs:
-    
-    # track progress
-    print('Subject {} of {}'.format(i, dm_lms.shape[0]))
-
-    # extract this subjects data and initialise lists
-    dm_subset = dm.subID == subID
-    params    = []
-    group.append(dm_subset[0].diagnosis)
-    
-    # loop through the time bins
-    for t in range(dur):
-        dm_subset.rel_pupil = dm_subset.bsc_pupil[:, t]
-        
-        # convert to dataframe and merge
-        df_sub = convert.to_pandas(dm_subset)
-        df_sub = pd.merge(df_sub, df_trl, how="left")
-        
-        # run the linear model
-        lm = smf.ols(formula=lm_form,
-                     data=df_sub).fit()
-        
-        # log all the data
-        params.append(lm.params)
-    
-    # add this subject betas to the datamatrix
-    params = pd.DataFrame(params)
-    dm_lms[i].b_Int   = params['Intercept']
-    dm_lms[i].b_exp   = params['C(exp, Sum)[S.expected]'] 
-    dm_lms[i].b_emo   = params['C(emo, Sum)[S.negative]']
-    dm_lms[i].b_diff1 = params['C(difficulty, Sum)[S.difficult]']
-    dm_lms[i].b_diff2 = params['C(difficulty, Sum)[S.easy]']
-    dm_lms[i].b_eps2  = params['eps2']
-    dm_lms[i].b_eps3  = params['eps3']
-    dm_lms[i].b_mu3   = params['mu3']
-    dm_lms[i].b_rts   = params['rts']
-    
-    i = i + 1
-    
-dm_lms.diagnosis = group
-
-# save all the lm data
-io.writepickle(dm_lms, path_out + 'PAL-ET_lm-betas.pkl')

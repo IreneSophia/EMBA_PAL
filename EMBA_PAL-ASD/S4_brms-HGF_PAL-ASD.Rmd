@@ -1,0 +1,893 @@
+---
+title: "S4: behavioural, HGF-based analysis with brms"
+author: "I. S. Plank"
+date: "`r Sys.Date()`"
+output: 
+  pdf_document:
+    toc: true
+    number_sections: true
+fontsize: 10pt
+geometry: margin=0.5in
+---
+  
+```{r settings, include=FALSE}
+
+knitr::opts_chunk$set(echo = T, warning = F, message = F, fig.align = 'center', fig.width = 7.4)
+ls.packages = c("knitr",# kable
+    "ggplot2",          # plots
+    "brms",             # Bayesian lmms
+    "designr",          # simLMM
+    "bridgesampling",   # bridge_sampler
+    "tidyverse",        # tibble stuff
+    "ggpubr",           # ggarrange
+    "ggrain",           # geom_rain
+    "bayesplot",        # plots for posterior predictive checks
+    "SBC",              # plots for checking computational faithfulness
+    "rstatix",          # anova
+    "BayesFactor", 
+    "effectsize",
+    "bayestestR"        # equivalence_test
+)
+
+lapply(ls.packages, library, character.only=TRUE)
+
+# set cores
+options(mc.cores = parallel::detectCores())
+
+# set options for brms
+options(brms.backend = "cmdstanr")
+t = 2
+
+# Setup caching of results
+brms_dir = "./_brms_models"
+if(!dir.exists(brms_dir)) {
+  dir.create(brms_dir)
+}
+
+# load helper functions
+source('../helper/createMs.R')
+
+# confidence interval functions
+lower_ci = function(var) {
+  unname(quantile(var, probs = 0.025))
+}
+upper_ci = function(var) {
+  unname(quantile(var, probs = 0.975))
+}
+
+# scale function for vector
+scale_this = function(x){
+  (x - mean(x, na.rm=TRUE)) / sd(x, na.rm=TRUE)
+}
+
+# graph settings 
+c_light = "#a9afb2"; c_light_highlight = "#8ea5b2"; c_mid = "#6b98b2" 
+c_mid_highlight = "#3585b2"; c_dark = "#0072b2"; c_dark_highlight = "#0058b2" 
+c_green = "#009E73"
+sz = 1
+a = 0.5
+
+# custom colour palette
+col.grp = c("#004D40", "#1E88E5")
+col.cnd = c("#5D3A9B", "#E66100")
+
+```
+
+<style type="text/css">
+  .main-container {
+    max-width: 1100px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+</style>
+  
+# Introduction
+  
+This R Markdown script analyses data from the PAL (probabilistic associative learning) task of the EMBA project. HGF parameters were extrated based on the subject-specific reaction times beforehand in MATLAB. 
+
+## Some general settings
+
+```{r set}
+
+# number of simulations
+nsim = 250
+
+# set number of iterations and warmup for models
+iter = 3000
+warm = 1000
+
+# set the seed
+set.seed(2468)
+
+```
+
+## Package versions
+
+The following packages are used in this RMarkdown file: 
+  
+```{r lib_versions, echo=F}
+
+print(R.Version()$version.string)
+
+for (package in ls.packages) {
+  print(sprintf("%s version %s", package, packageVersion(package)))
+}
+
+```
+
+## Preparation
+
+First, we load the parameters from the winning model.
+
+```{r prep, fig.height=4}
+
+# get HGF parameters  
+df.hgf = read_csv(file.path("HGF_results/main", "HGF-L17_results.csv")) %>%
+  mutate_if(is.character, as.factor)
+
+# get belief state trajectories
+df.trj = read_csv(file.path("HGF_results/main", "HGF-L17_traj.csv"))
+
+# extract the absolute changes in learning rate for the phases
+df.upd = df.trj %>%
+  select(subID, diagnosis, trl, alpha2, alpha3) %>%
+  mutate(
+    phase = case_when(
+      trl < 73  ~ "pre",
+      trl > 264 ~ "post",
+      trl < 145 ~ "vol1",
+      trl > 192 ~ "vol2"
+    )
+  ) %>%
+  drop_na() %>%
+  group_by(subID, diagnosis, phase) %>%
+  summarise(
+    alpha2 = median(alpha2),
+    alpha3 = median(alpha3)
+  ) %>%
+  pivot_wider(names_from = phase, id_cols = c(subID, diagnosis), values_from = starts_with("alpha")) %>%
+  group_by(subID, diagnosis) %>%
+  summarise(
+    alpha2_pre2vol  = abs(alpha2_pre  - alpha2_vol1),
+    alpha2_vol2post = abs(alpha2_post - alpha2_vol2),
+    alpha3_pre2vol  = abs(alpha3_pre  - alpha3_vol1),
+    alpha3_vol2post = abs(alpha3_post - alpha3_vol2)
+  ) %>% 
+  pivot_longer(cols = starts_with("alpha")) %>%
+  separate(name, into = c("level", "change")) %>%
+  mutate_if(is.character, as.factor) 
+
+# check whether there are LME differences between the diagnostic groups
+kable(df.hgf %>% group_by(diagnosis) %>% shapiro_test(LME)) # all normally distributed
+
+
+if (!file.exists(file.path(brms_dir, "aov_lme.rds"))) {
+  aov = anovaBF(LME ~ diagnosis, data = df.hgf)
+  saveRDS(aov, file.path(brms_dir, "aov_lme.rds"))
+} else {
+  aov = readRDS(file.path(brms_dir, "aov_lme.rds"))
+}
+
+aov@bayesFactor
+
+```
+
+There is `r interpret_bf(aov@bayesFactor$bf, log = T)` a difference in LME between diagnostic groups. This suggests that the HGF model fit comparably well to the subjects of the different groups. Therefore, we move on to analyse its parameters. 
+
+Following Lawson et al. (2017), the following observation model was used: 
+$$\log{RT} = \beta_0 + \beta_1 \times surprise_{stimulus} + \beta_2 \times uncertainty_{stimulus} + \beta_3 \times uncertainty_{cue-outcome} + \beta_4 \times volatility_{phasic}$$
+Next, we use sum contrast coding for all of our categorical predictors.
+
+```{r contrasts}
+
+# set and print the contrasts
+contrasts(df.hgf$diagnosis) = contr.sum(2)
+contrasts(df.hgf$diagnosis)
+
+contrasts(df.upd$diagnosis) = contr.sum(2)
+contrasts(df.upd$diagnosis)
+contrasts(df.upd$change) = contr.sum(2)
+contrasts(df.upd$change)
+contrasts(df.upd$level) = contr.sum(2)
+contrasts(df.upd$level)
+
+```
+
+# H3a: phasic volatility
+
+## Model setup
+
+```{r model_vol}
+
+# model formula
+f.vol = brms::bf( be4 ~ diagnosis )
+
+# set weakly informative priors
+priors = c(
+  prior(normal(0, 4),  class = Intercept),
+  prior(normal(0, 0.50),  class = sigma),
+  prior(normal(0, 0.25),  class = b)
+)
+
+# change Intercept based on empirical priors used in the HGF model
+priors = priors %>%
+  mutate(
+    prior = if_else(
+      class == "Intercept", 
+      gsub("\\(.*,", paste0("(", mean(df.hgf$be4mu), ", "), prior), prior),
+    prior = if_else(
+      class == "Intercept", 
+      gsub(" .*\\)", paste0(" ", mean(df.hgf$be4sa), ")"), prior), prior)
+  )
+
+kable(priors)
+
+```
+
+## Posterior predictive checks
+
+As the next step, we fit the model, check whether there are divergence or rhat issues, and then check whether the chains have converged.
+
+```{r postpc_vol1, fig.height=2, message=T}
+
+# fit the model
+m.vol = brm(f.vol, seed = 8822,
+            df.hgf, prior = priors,
+            iter = iter, warmup = warm,
+            backend = "cmdstanr", threads = threading(t),
+            file = file.path(brms_dir, "m_hgf_vol"),
+            save_pars = save_pars(all = TRUE)
+            )
+rstan::check_hmc_diagnostics(m.vol$fit)
+
+# check that rhats are below 1.01
+sum(brms::rhat(m.vol) >= 1.01, na.rm = T)
+
+# check the trace plots
+post.draws = as_draws_df(m.vol)
+mcmc_trace(post.draws, regex_pars = "^b_",
+           facet_args = list(ncol = 2)) +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3))
+
+```
+
+This model has no pathological behaviour with E-BFMI, no divergent sample and no rhats that are higher or equal to 1.01. Therefore, we go ahead and perform our posterior predictive checks. 
+
+```{r postpc_vol2, fig.height=4}
+
+# get posterior predictions
+post.pred = posterior_predict(m.vol, ndraws = nsim)
+
+# check the fit of the predicted data compared to the real data
+p1 = pp_check(m.vol, ndraws = nsim) + 
+  theme_bw() + theme(legend.position = "none")
+
+# distributions of means compared to the real values per group
+p2 = ppc_stat_grouped(df.hgf$be4, post.pred, df.hgf$diagnosis) + 
+  theme_bw() + theme(legend.position = "none")
+
+p = ggarrange(p1, p2, 
+          nrow = 2, ncol = 1, labels = "AUTO")
+annotate_figure(p, top = text_grob("Posterior predictive checks", 
+                                   face = "bold", size = 14))
+
+```
+
+The overall simulated data fits reasonably well, even though it does not reproduce the shape completely. The mean simulated data based on the model fits well with the real data. 
+
+## Inferences
+
+Now that we are convinced that we can trust our model, we have a look at its estimate and use the hypothesis function to assess our hypotheses and perform explorative tests. 
+
+```{r inf_vol, fig.height=3}
+
+# print a summary
+summary(m.vol)
+
+# get the estimates and compute group comparisons
+df.m.vol = post.draws %>% 
+  mutate(
+    ASD    = b_Intercept + b_diagnosis1,
+    COMP   = b_Intercept - b_diagnosis1
+  )
+
+# plot the posterior distributions
+df.m.vol %>%
+  select(ASD, COMP) %>%
+  pivot_longer(cols = everything(), names_to = "coef", values_to = "estimate") %>%
+  ggplot(aes(x = estimate, y = coef), fill = c_light) +
+  geom_vline(xintercept = mean(df.m.vol$b_Intercept), linetype = 'dashed') +
+  ggdist::stat_halfeye(alpha = 0.7) + ylab(NULL) + theme_bw() +
+  theme(legend.position = "none")
+
+# H3a: COMP < ASD
+h3a = hypothesis(m.vol, "0 < diagnosis1")
+h3a
+
+equivalence_test(m.vol)
+
+# get effect sizes (Hedges, 2007)
+df.effect = df.m.vol %>%
+  mutate(
+    group = 2*b_diagnosis1 / sigma
+  )
+
+kable(df.effect %>% select(group) %>%
+        pivot_longer(cols = everything(), values_to = "estimate") %>%
+        group_by(name) %>%
+        summarise(
+          ci.lo = lower_ci(estimate),
+          mean  = mean(estimate),
+          ci.hi = upper_ci(estimate),
+          interpret = interpret_cohens_d(mean)
+        )
+)
+
+```
+
+
+*estimate* = `r round(h3a$hypothesis$Estimate,2)` [`r round(h3a$hypothesis$CI.Lower,2)`, `r round(h3a$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h3a$hypothesis$Post.Prob*100,2)`%
+
+# H3b: third level tonic volatility
+
+## Model setup
+
+```{r model_om3}
+
+# code for filenames
+code = "PAL_om3"
+
+# model formula
+f.om3 = brms::bf( om3 ~ diagnosis )
+
+# set weakly informative priors
+priors = c(
+  prior(normal(0, 4),  class = Intercept),
+  prior(normal(0, 0.50),  class = sigma),
+  prior(normal(0, 0.25),  class = b)
+)
+
+# change Intercept based on empirical priors used in the HGF model
+priors = priors %>%
+  mutate(
+    prior = if_else(
+      class == "Intercept", 
+      gsub("\\(.*,", paste0("(", mean(df.hgf$om3mu), ", "), prior), prior),
+    prior = if_else(
+      class == "Intercept", 
+      gsub(" .*\\)", paste0(" ", mean(df.hgf$om3sa), ")"), prior), prior)
+  )
+
+kable(priors)
+
+```
+
+## Posterior predictive checks
+
+As the next step, we fit the model, check whether there are divergence or rhat issues, and then check whether the chains have converged.
+
+```{r postpc_om3_1, fig.height=2, message=T}
+
+# fit the final model
+m.om3 = brm(f.om3, seed = 2288,
+            df.hgf, prior = priors,
+            iter = iter, warmup = warm,
+            backend = "cmdstanr", threads = threading(t),
+            file = file.path(brms_dir, "m_hgf_om3"),
+            save_pars = save_pars(all = TRUE)
+            )
+rstan::check_hmc_diagnostics(m.om3$fit)
+
+# check that rhats are below 1.01
+sum(brms::rhat(m.om3) >= 1.01, na.rm = T)
+
+# check the trace plots
+post.draws = as_draws_df(m.om3)
+mcmc_trace(post.draws, regex_pars = "^b_",
+           facet_args = list(ncol = 2)) +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3))
+
+```
+
+This model has no pathological behaviour with E-BFMI, no divergent sample and no rhats that are higher or equal to 1.01. Therefore, we go ahead and perform our posterior predictive checks. 
+
+```{r postpc_om3_2, fig.height=4}
+
+# get posterior predictions
+post.pred = posterior_predict(m.om3, ndraws = nsim)
+
+# check the fit of the predicted data compared to the real data
+p1 = pp_check(m.om3, ndraws = nsim) + 
+  theme_bw() + theme(legend.position = "none")
+
+# distributions of means compared to the real values per group
+p2 = ppc_stat_grouped(df.hgf$om3, post.pred, df.hgf$diagnosis) + 
+  theme_bw() + theme(legend.position = "none")
+
+p = ggarrange(p1, p2, 
+          nrow = 2, ncol = 1, labels = "AUTO")
+annotate_figure(p, top = text_grob("Posterior predictive checks", 
+                                   face = "bold", size = 14))
+
+```
+
+Similar to above, the simulated data based on the model fits well with the real data, although it doesn't reproduce the overall shape. 
+
+## Inferences
+
+Now that we are convinced that we can trust our model, we have a look at its estimate and use the hypothesis function to assess our hypotheses and perform explorative tests. 
+
+```{r inf_om3, fig.height=3}
+
+# print a summary
+summary(m.om3)
+
+# get the estimates and compute group comparisons
+df.m.om3 = post.draws %>% 
+  mutate(
+    ASD    = b_Intercept + b_diagnosis1,
+    COMP   = b_Intercept - b_diagnosis1
+  )
+
+# plot the posterior distributions
+df.m.om3 %>%
+  select(ASD, COMP) %>%
+  pivot_longer(cols = everything(), names_to = "coef", values_to = "estimate") %>%
+  ggplot(aes(x = estimate, y = coef), fill = c_light) +
+  geom_vline(xintercept = mean(df.m.om3$b_Intercept), linetype = 'dashed') +
+  ggdist::stat_halfeye(alpha = 0.7) + ylab(NULL) + theme_bw() +
+  theme(legend.position = "none")
+
+# H3b: COMP < ASD
+h3b = hypothesis(m.om3, "0 < diagnosis1")
+h3b
+
+equivalence_test(m.om3)
+
+# get effect sizes (Hedges, 2007)
+df.effect = df.m.om3 %>%
+  mutate(
+    group = 2*b_diagnosis1 / sigma
+  )
+
+kable(df.effect %>% select(group) %>%
+        pivot_longer(cols = everything(), values_to = "estimate") %>%
+        group_by(name) %>%
+        summarise(
+          ci.lo = lower_ci(estimate),
+          mean  = mean(estimate),
+          ci.hi = upper_ci(estimate),
+          interpret = interpret_cohens_d(mean)
+        )
+)
+
+```
+
+*estimate* = `r round(h3b$hypothesis$Estimate,2)` [`r round(h3b$hypothesis$CI.Lower,2)`, `r round(h3b$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h3b$hypothesis$Post.Prob*100,2)`%
+
+# Exploration of Bernoulli model with HGF parameters
+
+## Model setup
+
+```{r bern}
+
+# recode the order and scale the predictors
+df.hgf = df.hgf %>%
+  mutate(
+    group = if_else(diagnosis == "ASD", 1, 0)
+  ) %>% mutate(across(c(be1, be2, be3, be4, ze, om2, om3), scale_this, .names = "s{.col}"))
+
+kable(df.hgf %>% select(diagnosis, group) %>% distinct(),
+      caption = "Coding for the order in the Bernoulli model")
+
+# model formula
+f = brms::bf( group ~ sbe1 + sbe2 + sbe3 + sbe4 + sze + som2 + som3 )
+f
+
+# Bernoulli
+priors = c(
+  prior(normal(0,    0.50),  class = Intercept), # because 50:50
+  prior(normal(0,    1.00),  class = b)
+)
+
+```
+
+## Posterior predictive checks
+
+```{r postpc_bern1, fig.height=4, message=T}
+
+# fit the final model
+m = brm(f,
+        df.hgf, prior = priors,
+        family = bernoulli(link = "logit"),
+        iter = iter, warmup = warm,
+        backend = "cmdstanr", threads = threading(8),
+        file = file.path(brms_dir, "m_hgf_bern"),
+        save_pars = save_pars(all = TRUE),
+        seed = 4284
+        )
+rstan::check_hmc_diagnostics(m$fit)
+
+# check that rhats are below 1.01
+sum(brms::rhat(m) >= 1.01, na.rm = T)
+
+# check the trace plots
+post.draws = as_draws_df(m)
+mcmc_trace(post.draws, regex_pars = "^b_",
+           facet_args = list(ncol = 4)) +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3))
+
+```
+
+
+This model has no pathological behaviour with E-BFMI, no divergent sample and no rhats that are higher or equal to 1.01. Therefore, we go ahead and perform our posterior predictive checks.
+
+```{r postpc_bern2, fig.height=2}
+
+# get posterior predictions
+post.pred = posterior_predict(m, ndraws = nsim)
+
+# check the fit of the predicted data compared to the real data
+p = ppc_bars(df.hgf$group, post.pred) + 
+  theme_bw() + theme(legend.position = "none")
+
+annotate_figure(p, top = text_grob("Posterior predictive checks", 
+                                   face = "bold", size = 14))
+
+```
+
+The overall simulated data fits reasonably well. Now that we are convinced that we can trust our model, we have a look at its estimates.
+
+## Inferences
+
+```{r inf_bern, fig.height=4.25, fig.width=4}
+
+# print a summary
+summary(m)
+
+# plot the posterior distributions
+post.draws %>% 
+  select(starts_with("b_") & !starts_with("b_Int")) %>%
+  pivot_longer(cols = starts_with("b_"), names_to = "coef", values_to = "estimate") %>%
+  mutate(
+    coef = substr(coef, 3, nchar(coef)),
+    coef = fct_reorder(coef, desc(estimate))
+  )  %>% 
+  group_by(coef) %>%
+  mutate(
+    cred = case_when(
+      (mean(estimate) < 0 & quantile(estimate, probs = 0.975) < 0) |
+        (mean(estimate) > 0 & quantile(estimate, probs = 0.025) > 0) ~ "credible",
+      T ~ "not credible"
+    )
+  ) %>% ungroup() %>%
+  ggplot(aes(x = estimate, y = coef, fill = cred)) +
+  geom_vline(xintercept = 0, linetype = 'dashed') +
+  ggdist::stat_halfeye(alpha = 0.7) + ylab(NULL) +
+  scale_fill_manual(values = c("credible" = c_dark, "not credible" = c_light)) + 
+  theme_bw() +  theme(legend.position = "bottom", legend.direction = "horizontal")
+
+e = hypothesis(m, "sbe4 > 0", alpha = 0.025)
+e$hypothesis
+
+equivalence_test(m)
+
+```
+
+
+# Plots for all HGF parameters
+
+```{r plot_hgf, fig.height=8}
+
+df.hgf %>%
+  select(subID, diagnosis, be0, be1, be2, be3, be4, ze, om2, om3) %>% #
+  pivot_longer(cols = c(be0, be1, be2, be3, be4, ze, om2, om3), 
+               names_to = "parameter") %>%
+  mutate(
+    parameter = factor(case_match(parameter,
+                           "be0" ~ "predicted log RT",
+                           "be1" ~ "stimulus surprise",
+                           "be2" ~ "stimulus uncertainty",
+                           "be3" ~ "cue-outcome uncertainty",
+                           "be4" ~ "phasic volatility",
+                           "ze"  ~ "Sigma (decision noise)",
+                           "om2" ~ "2nd tonic volatility",
+                           "om3" ~ "3rd tonic volatility"
+                           ), levels = c("2nd tonic volatility", 
+                                         "3rd tonic volatility", 
+                                         "predicted log RT", 
+                                         "stimulus surprise", 
+                                         "stimulus uncertainty",
+                                         "cue-outcome uncertainty", 
+                                         "phasic volatility", 
+                                         "Sigma (decision noise)"))
+  ) %>%
+  filter(!(parameter %in% c("predicted log RT", "Sigma (decision noise)"))) %>%
+  ggplot(aes(x = 1, y = value, fill = diagnosis, colour = diagnosis)) + #
+  geom_rain(rain.side = 'r',
+boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
+violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
+boxplot.args.pos = list(
+  position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
+),
+point.args = list(show_guide = FALSE, alpha = .5),
+violin.args.pos = list(
+  width = 0.6, position = position_nudge(x = 0.16)),
+point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
+  scale_fill_manual(values = col.grp) +
+  scale_color_manual(values = col.grp) +
+  facet_wrap(. ~ parameter, scales = "free", ncol = 3) +
+  labs(title = "HGF parameter", x = "", y = "") +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_blank(), 
+        text = element_text(size = 13), axis.text.x=element_blank(), 
+        axis.ticks.x=element_blank(), legend.direction = "horizontal",
+        legend.title = element_blank())
+
+
+
+ggsave("plots/FigHGF.svg", units = "cm", width = 27, height = 13.5)
+
+
+```
+
+
+# Learning rate update - volatile to stable
+
+## Model setup
+
+```{r model_alpha}
+
+# model formula
+f.alpha = brms::bf( value ~ diagnosis * level * change + (level + change | subID) )
+
+# set weakly informative priors taking Lawson 2017 into consideration
+priors = c(
+  prior(normal(-5, 2),    class = Intercept),
+  prior(normal(0.5, 0.5), class = sigma),
+  prior(normal(0.5, 0.5), class = sd),
+  prior(lkj(2),           class = cor),
+  prior(normal(0,   1.0),   class = b) # probably big difference between levels
+)
+
+```
+
+## Posterior predictive checks
+
+As the next step, we fit the model, check whether there are divergence or rhat issues, and then check whether the chains have converged.
+
+```{r postpc_alpha_1, fig.height=4, message=T}
+
+# fit the final model
+m.alpha = brm(f.alpha, family = lognormal,
+            df.upd, prior = priors, seed = 6688,
+            iter = iter, warmup = warm,
+            backend = "cmdstanr", threads = threading(t),
+            file = file.path(brms_dir, "m_hgf_alpha"),
+            save_pars = save_pars(all = TRUE)
+            )
+rstan::check_hmc_diagnostics(m.alpha$fit)
+
+# check that rhats are below 1.01
+sum(brms::rhat(m.alpha) >= 1.01, na.rm = T)
+
+# check the trace plots
+post.draws = as_draws_df(m.alpha)
+mcmc_trace(post.draws, regex_pars = "^b_",
+           facet_args = list(ncol = 4)) +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3))
+
+```
+
+This model has no pathological behaviour with E-BFMI, no divergent sample and no rhats that are higher or equal to 1.01. Therefore, we go ahead and perform our posterior predictive checks. 
+
+```{r postpc_alpha_2, fig.height=6}
+
+# get posterior predictions
+post.pred = posterior_predict(m.alpha, ndraws = nsim)
+
+# check the fit of the predicted data compared to the real data
+p1 = pp_check(m.alpha, ndraws = nsim) + 
+  theme_bw() + theme(legend.position = "none") + xlim(0, 0.10)
+
+# distributions of means compared to the real values per group
+p2 = ppc_stat_grouped(df.upd$value, post.pred, df.upd$diagnosis) + 
+  theme_bw() + theme(legend.position = "none")
+p3 = ppc_stat_grouped(df.upd$value, post.pred, df.upd$level) + 
+  theme_bw() + theme(legend.position = "none")
+p4 = ppc_stat_grouped(df.upd$value, post.pred, df.upd$change) + 
+  theme_bw() + theme(legend.position = "none")
+
+p = ggarrange(p1, p2, ggarrange(p3, p4, nrow = 2), 
+          nrow = 3, ncol = 1)
+annotate_figure(p, top = text_grob("Posterior predictive checks", 
+                                   face = "bold", size = 14))
+
+```
+This model does not quite capture the different changes. We'll still use the estimates for our hypothesis testing, since we are not interested in the specific changes. However, we also do model comparison to back the results up. 
+
+## Inferences
+
+Now that we are convinced that we can trust our model, we have a look at its estimate and use the hypothesis function to assess our hypotheses and perform explorative tests. 
+
+```{r inf_alpha, fig.height=6}
+
+# print a summary
+summary(m.alpha)
+
+# plot the posterior distributions
+post.draws %>%
+  select(starts_with("b_")) %>%
+  pivot_longer(cols = starts_with("b_"), names_to = "coef", values_to = "estimate") %>%
+  subset(!startsWith(coef, "b_Int")) %>%
+  mutate(
+    coef = substr(coef, 3, nchar(coef)),
+    coef = str_replace_all(coef, ":", " x "),
+    coef = str_replace_all(coef, "diagnosis1", "ASD"),
+    coef = str_replace_all(coef, "level1", "alpha2"),
+    coef = str_replace_all(coef, "change1", "pre2vol"),
+    coef = fct_reorder(coef, desc(estimate))
+  ) %>% 
+  group_by(coef) %>%
+  mutate(
+    cred = case_when(
+      (mean(estimate) < 0 & quantile(estimate, probs = 0.975) < 0) |
+        (mean(estimate) > 0 & quantile(estimate, probs = 0.025) > 0) ~ "credible",
+      T ~ "not credible"
+    )
+  ) %>% ungroup() %>%
+  ggplot(aes(x = estimate, y = coef, fill = cred)) +
+  geom_vline(xintercept = 0, linetype = 'dashed') +
+  ggdist::stat_halfeye(alpha = 0.7) + ylab(NULL) + theme_bw() +
+  scale_fill_manual(values = c(c_dark, c_light)) + theme(legend.position = "none")
+
+# get the design matrix to figure out how to set the contrasts
+df.des = cbind(df.upd, 
+               model.matrix(~ diagnosis * level * change, data = df.upd)) %>%
+  ungroup() %>%
+  select(-subID, -value) %>% distinct()
+
+# H4a: alpha3 ASD > COMP
+t(df.des %>% 
+    filter(level == "alpha3") %>%
+    group_by(diagnosis) %>%
+    summarise(across(where(is.numeric), ~ mean(.x))) %>%
+    arrange(diagnosis) %>%
+    select(where(is.numeric)) %>%
+    map_df(~ diff(.x))) # COMP - ASD
+
+h4a = hypothesis(m.alpha, "0 > - diagnosis1 + diagnosis1:level1")
+h4a
+
+# H4b: alpha2 ASD < COMP
+t(df.des %>% 
+    filter(level == "alpha2") %>%
+    group_by(diagnosis) %>%
+    summarise(across(where(is.numeric), ~ mean(.x))) %>%
+    arrange(diagnosis) %>%
+    select(where(is.numeric)) %>%
+    map_df(~ diff(.x))) # COMP - ASD
+
+h4b = hypothesis(m.alpha, "0 < -diagnosis1 - diagnosis1:level1")
+h4b
+
+# get effect sizes (Hedges, 2007)
+df.effect = post.draws %>%
+  mutate(
+    sumvar = sqrt(sigma^2 + sd_subID__Intercept^2 + 
+                    sd_subID__level1^2 + sd_subID__change1^2),
+    group = 2*b_diagnosis1 / sumvar,
+    h4a   = (-2*b_diagnosis1 + 2*`b_diagnosis1:level1`) / sumvar,
+    h4b   = (-2*b_diagnosis1 - 2*`b_diagnosis1:level1`) / sumvar
+  )
+
+kable(df.effect %>% select(group, h4a, h4b) %>%
+        pivot_longer(cols = everything(), values_to = "estimate") %>%
+        group_by(name) %>%
+        summarise(
+          ci.lo = lower_ci(estimate),
+          mean  = mean(estimate),
+          ci.hi = upper_ci(estimate),
+          interpret = interpret_cohens_d(mean)
+        )
+)
+
+
+```
+
+h4a ASD alpha3: *estimate* = `r round(h4a$hypothesis$Estimate,2)` [`r round(h4a$hypothesis$CI.Lower,2)`, `r round(h4a$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h4a$hypothesis$Post.Prob*100,2)`%
+
+h4b ASD alpha2: *estimate* = `r round(h4b$hypothesis$Estimate,2)` [`r round(h4b$hypothesis$CI.Lower,2)`, `r round(h4b$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h4b$hypothesis$Post.Prob*100,2)`%
+
+## Bayesian ANOVA
+
+```{r aov}
+
+df.upd = df.upd %>% ungroup() %>%
+  mutate(rvalue = rank(value))
+
+if (!file.exists(file.path(brms_dir, "aov_alpha.rds"))) {
+  aov = anovaBF(rvalue ~ diagnosis * level * change, data = df.upd)
+  saveRDS(aov, file.path(brms_dir, "aov_alpha.rds"))
+} else {
+  aov = readRDS(file.path(brms_dir, "aov_alpha.rds"))
+}
+
+kable(aov@bayesFactor %>% arrange(desc(bf)) %>%
+  select(bf) %>% mutate(bf.diff = abs(lead(bf)-bf),
+                        bf.int  = interpret_bf(bf.diff, log = T)), digits = 3)
+
+```
+
+
+# Plots for learning rate updates
+
+```{r plot_alpha, fig.height=8}
+
+# rain cloud plot
+
+df.upd %>%
+  mutate(
+    change = case_match(change,
+                        "pre2vol"  ~ "prevolatile to volatile",
+                        "vol2post" ~ "volatile to postvolatile")
+  ) %>%
+  ggplot(aes(1, value, fill = diagnosis, colour = diagnosis)) + #
+  geom_rain(rain.side = 'r',
+boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
+violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
+boxplot.args.pos = list(
+  position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
+),
+point.args = list(show_guide = FALSE, alpha = .5),
+violin.args.pos = list(
+  width = 0.6, position = position_nudge(x = 0.16)),
+point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
+  scale_fill_manual(values = col.grp) +
+  scale_color_manual(values = col.grp) +
+  facet_wrap(level ~ change, scales = "free") +
+  labs(title = "Learning rate updates", x = "", y = "") +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5), 
+        legend.direction = "horizontal", text = element_text(size = 15),
+        axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+ggsave("plots/FigHGF_LR.svg", units = "cm", width = 27, height = 13.5)
+
+```
+
+# Similar plots to Lawson et al. (2017) for comparison
+
+```{r asd_comp2_Law, fig.height=6, fig.width=6}
+
+
+df.hgf %>%
+  select(subID, diagnosis, be4, om3) %>% #
+  pivot_longer(cols = c(be4, om3), names_to = "parameter") %>%
+  ggplot(aes(x = diagnosis, y = value, fill = diagnosis))  + 
+  geom_boxplot() +
+  geom_jitter(width = 0.2) + 
+  scale_fill_manual(values = c("#0072bd", "#ffd700")) +
+  facet_wrap(. ~ parameter, scales = "free", ncol = 3) +
+  labs(title = "HGF parameter", x = "", y = "") +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5), 
+        text = element_text(size = 15), axis.text.x=element_blank(), 
+        axis.ticks.x=element_blank(), legend.direction = "horizontal")
+
+# two-way interaction
+df.upd %>%
+  filter(diagnosis %in% c("ASD", "COMP") & change == "pre2vol") %>%
+  ggplot(aes(y = value, fill = diagnosis, x = level)) +
+  geom_boxplot() +
+  geom_point(position=position_jitterdodge(dodge.width=0.9)) +  
+  scale_fill_manual(values = c("#0072bd", "#ffd700")) +
+  labs(x = "diagnosis", y = "Delta(alpha)") + # "\u0394 \u03b1" not working for now
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5))
+
+```
