@@ -5,7 +5,7 @@ author: "Plank et al."
 date: "`r Sys.Date()`"
 output: 
   pdf_document:
-    toc: true
+    toc: false
     number_sections: true
     latex_engine: xelatex
 fontsize: 10pt
@@ -96,6 +96,16 @@ for (package in ls.packages) {
 }
 
 ```
+
+# Methods
+
+## Preprocessing of pupil sizes
+
+We classified any extreme values (above 8 and below 2mm) as well as participant-specific extreme velocities and blinks as artefacts. Then, we low-pass filtered the data with a threshold of 4Hz based on Kret and Sjak-Shie (2019), smoothed the data and interpolated all artefacts shorter than half a second with cubic spline interpolation. Next, data was downsampled to 100Hz and trials with more than one third of the datapoints missing were excluded from analysis. Last, we applied correction based on a baseline of 200ms before onset of the face presentation. We visualised data quality and excluded trials if the pupil trace indicates recording artefacts or baseline artefacts as well as if the baseline pupil size is considered an outlier (absolute z-score larger than 2). 
+
+## Bayesian linear (mixed) models
+
+All contrasts are set to sum coding. The models for the volatilities extracted from the HGF and for the pupil sizes used a Gaussian likelihood, while both the reaction times and learning rate updates were modelled using a lognormal distribution. The reaction time model additionally included a shift. All models included the predictor Group (ASD, COMP). The reaction time model also included Expectancy, Phase and Difficulty as well as all interactions on the population-level, and participant with slopes for Expectancy, Phase, Difficulty and their interactions as well as trials with slopes for Group on the group-level. The hypothesis regarding pupil sizes was evaluated using a model with the predictors Group, Expectancy and their interaction as well as intercepts for the participants on the group-level. Since pupil sizes are sensitive to physical movements (Mathôt & Vilotijević, 2023), we include RT of each trial instead of including trial on the group-level, as preregistered. The model for the learning rate updates included Group, Level (environmental or cue-outcome association) and Change (stable to volatile or volatile to stable) on the population-level as well as participants with slopes for Level and Change on the group-level. 
 
 # Model evaluation
 
@@ -324,7 +334,7 @@ violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
 boxplot.args.pos = list(
   position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
 ),
-point.args = list(show_guide = FALSE, alpha = .5),
+point.args = list(show.legend = FALSE, alpha = .5),
 violin.args.pos = list(
   width = 0.6, position = position_nudge(x = 0.16)),
 point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
@@ -365,7 +375,7 @@ violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
 boxplot.args.pos = list(
   position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
 ),
-point.args = list(show_guide = FALSE, alpha = .5),
+point.args = list(show.legend = FALSE, alpha = .5),
 violin.args.pos = list(
   width = 0.6, position = position_nudge(x = 0.16)),
 point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
@@ -406,7 +416,7 @@ violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
 boxplot.args.pos = list(
   position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
 ),
-point.args = list(show_guide = FALSE, alpha = .5),
+point.args = list(show.legend = FALSE, alpha = .5),
 violin.args.pos = list(
   width = 0.6, position = position_nudge(x = 0.16)),
 point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +

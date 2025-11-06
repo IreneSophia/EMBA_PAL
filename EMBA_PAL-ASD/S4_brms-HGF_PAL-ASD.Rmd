@@ -613,7 +613,7 @@ violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
 boxplot.args.pos = list(
   position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
 ),
-point.args = list(show_guide = FALSE, alpha = .5),
+point.args = list(show.legend = FALSE, alpha = .5),
 violin.args.pos = list(
   width = 0.6, position = position_nudge(x = 0.16)),
 point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
@@ -834,7 +834,10 @@ df.upd %>%
   mutate(
     change = case_match(change,
                         "pre2vol"  ~ "prevolatile to volatile",
-                        "vol2post" ~ "volatile to postvolatile")
+                        "vol2post" ~ "volatile to postvolatile"),
+    level = case_match(level,
+                        "alpha2"  ~ "2nd level learning rate updates",
+                        "alpha3"  ~ "3rd level learning rate updates")
   ) %>%
   ggplot(aes(1, value, fill = diagnosis, colour = diagnosis)) + #
   geom_rain(rain.side = 'r',
@@ -843,7 +846,7 @@ violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
 boxplot.args.pos = list(
   position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
 ),
-point.args = list(show_guide = FALSE, alpha = .5),
+point.args = list(show.legend = FALSE, alpha = .5),
 violin.args.pos = list(
   width = 0.6, position = position_nudge(x = 0.16)),
 point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
