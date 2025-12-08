@@ -1,0 +1,267 @@
+---
+title: "PAL ADHD results"
+author: "I S Plank"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+ls.packages = c("knitr",# kable
+    "ggplot2",          # plots
+    "brms",             # Bayesian lmms
+    "bridgesampling",   # bridge_sampler
+    "tidyverse",        # tibble stuff
+    "ggpubr",           # ggarrange
+    "ggrain",           # geom_rain
+    "bayesplot",        # plots for posterior predictive checks
+    "SBC",              # plots for checking computational faithfulness
+    "rstatix",          # anova
+    "officer",          # read_docx
+    "effectsize",       # interpret_bf
+    "BayesFactor", 
+    "bayestestR"        # equivalence_test
+)
+
+lapply(ls.packages, library, character.only=TRUE)
+
+
+# confidence interval functions
+lower_ci = function(var) {
+  unname(quantile(var, probs = 0.025))
+}
+upper_ci = function(var) {
+  unname(quantile(var, probs = 0.975))
+}
+
+# function to interpret posterior probabilities
+interpret_PP = function(p) {
+  if (p > 0.975) {
+    "very strong"
+  } else if (p > 0.95) {
+    "strong"
+  } else if (p > 0.90) {
+    "moderate"
+  } else if (p > 0.80) {
+    "small"
+  } else if (p > 0.70) {
+    "anecdotal"
+  } else {
+    "no"
+  }
+}
+
+brms_dir = "./_brms_models"
+
+# load the models
+m.om2 = readRDS(file.path(brms_dir, "m_hgf_om2.rds"))
+m.ber.med = readRDS(file.path(brms_dir, "m_hgf_bern_meds.rds"))
+m.alpha = readRDS(file.path(brms_dir, "m_hgf_alpha.rds"))
+m.ber = readRDS(file.path(brms_dir, "m_hgf_bern_adhd.rds"))
+
+# hypotheses
+h3c = hypothesis(m.om2, "0 < 2*diagnosis1 + diagnosis2")
+h4c = hypothesis(m.alpha, "0 < 2*diagnosis1 + diagnosis2", alpha = 0.025)
+
+# exploration
+e.med = hypothesis(m.ber.med, "0 < -som2")
+e.som2 = hypothesis(m.ber, "0 > -som2")
+e.som3 = hypothesis(m.ber, "0 < som3")
+
+# get effect sizes (Hedges, 2007)
+df.eff.om2 = as_draws_df(m.om2) %>%
+  mutate(across(starts_with("sd")|starts_with("sigma"), ~.^2)) %>%
+  mutate(
+    sumvar = sqrt(rowSums(select(., starts_with("sd")|starts_with("sigma")))),
+    h3c = -(2*`b_diagnosis1` + `b_diagnosis2`) / sumvar) %>% select(starts_with("h")) %>%
+  pivot_longer(cols = everything(), values_to = "estimate") %>%
+  group_by(name) %>%
+  summarise(
+    ci.lo = lower_ci(estimate),
+    mean  = mean(estimate),
+    ci.hi = upper_ci(estimate),
+    interpret = interpret_cohens_d(mean)
+  )
+
+df.eff.med = as_draws_df(m.ber.med) %>% select(starts_with("b_s"), -b_Intercept) %>%
+        pivot_longer(cols = everything(), values_to = "estimate") %>%
+        group_by(name) %>%
+        summarise(
+          ci.lo = lower_ci(estimate),
+          mean  = mean(estimate),
+          ci.hi = upper_ci(estimate),
+          interpret = interpret_cohens_d(mean)
+        )
+
+df.eff.ber = as_draws_df(m.ber) %>% select(starts_with("b_s")) %>%
+        pivot_longer(cols = everything(), values_to = "estimate") %>%
+        group_by(name) %>%
+        summarise(
+          ci.lo = lower_ci(estimate),
+          mean  = mean(estimate),
+          ci.hi = upper_ci(estimate),
+          interpret = interpret_cohens_d(mean)
+        )
+
+df.eff.alpha = as_draws_df(m.alpha) %>%
+  mutate(across(starts_with("sd")|starts_with("sigma"), ~.^2)) %>%
+  mutate(
+    sumvar = sqrt(rowSums(select(., starts_with("sd")|starts_with("sigma")))),
+    h4c = -(2*`b_diagnosis1` + `b_diagnosis2`) / sumvar
+  ) %>% select(starts_with("h")) %>%
+  pivot_longer(cols = everything(), values_to = "estimate") %>%
+  group_by(name) %>%
+  summarise(
+    ci.lo = lower_ci(estimate),
+    mean  = mean(estimate),
+    ci.hi = upper_ci(estimate),
+    interpret = interpret_cohens_d(mean)
+  )
+
+```
+
+# Results
+
+## Participant-specific HGF and DDM parameters
+
+There were no credible differences in participant-specific parameters extracted from the winning model between ADHD and COMP participants, contrasting our hypotheses (see **[!FIGURE]**). Specifically, there was only `r interpret_PP(h3c$hypothesis$Post.Prob)` evidence in favour of differences in cue-outcome tonic volatility between ADHD and COMP adults (*estimate* = `r round(h3c$hypothesis$Estimate,2)` [`r round(h3c$hypothesis$CI.Lower,2)`, `r round(h3c$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h3c$hypothesis$Post.Prob*100,2)`%, *δ* = `r round(df.eff.om2$mean, 3)` [`r round(df.eff.om2$ci.lo, 3)`, `r round(df.eff.om2$ci.hi, 3)`]). There was also mere `r interpret_PP(h4c$hypothesis$Post.Prob)` evidence towards a difference in learning rate update between ADHD and COMP adults (*estimate* = `r round(h4c$hypothesis$Estimate,2)` [`r round(h4c$hypothesis$CI.Lower,2)`, `r round(h4c$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h4c$hypothesis$Post.Prob*100,2)`%, *δ* = `r round(df.eff.alpha$mean, 3)` [`r round(df.eff.alpha$ci.lo, 3)`, `r round(df.eff.alpha$ci.hi, 3)`]). Nonetheless, the explorative Bernoulli model focusing on adults not taking any ADHD medication revealed `r interpret_PP(e.som2$hypothesis$Post.Prob)` evidence for increased cue-outcome tonic volatility in ADHD (*estimate* = `r round(e.som2$hypothesis$Estimate,2)` [`r round(e.som2$hypothesis$CI.Lower,2)`, `r round(e.som2$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(e.som2$hypothesis$Post.Prob*100,2)`%, *δ* = `r round(df.eff.ber[df.eff.ber$name == "b_som2",]$mean, 3)` [`r round(df.eff.ber[df.eff.ber$name == "b_som2",]$ci.lo, 3)`, `r round(df.eff.ber[df.eff.ber$name == "b_som2",]$ci.hi, 3)`]) for the combined group of ADHD and ADHD+ASD compared to COMP participants (see supplementary materials). The same model did not reveal evidence for any other associations, neither of perception nor response model parameters. A similar model focusing on adults with ADHD, regardless of comorbid ASD, revealed `r interpret_PP(e.med$hypothesis$Post.Prob)` evidence for a decrease in cue-outcome tonic volatility with ADHD medication (*estimate* = `r round(e.med$hypothesis$Estimate,2)` [`r round(e.med$hypothesis$CI.Lower,2)`, `r round(e.med$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(e.med$hypothesis$Post.Prob*100,2)`%, *δ* = `r round(df.eff.med[df.eff.med$name == "b_som2",]$mean, 3)` [`r round(df.eff.med[df.eff.med$name == "b_som2",]$ci.lo, 3)`, `r round(df.eff.med[df.eff.med$name == "b_som2",]$ci.hi, 3)`]). 
+
+```{r dat1, include=FALSE}
+
+m.v   = readRDS(file.path(brms_dir, "m_ddm_v.rds"))
+m.med = readRDS(file.path(brms_dir, "m_ddm_v3.rds"))
+
+e.adhd = hypothesis(m.v, "0 > 2*diagnosis1 + diagnosis2")
+e.both = hypothesis(m.v, "0 > diagnosis1 + 2*diagnosis2")
+e.clin = hypothesis(m.v, "-diagnosis1 > -diagnosis2")
+
+e.vol  = hypothesis(m.v, "1.5*phase2 > 0")
+e.volg = hypothesis(m.v, "-2.25*(diagnosis1:phase2 + diagnosis2:phase2) > 0")
+
+e.med = hypothesis(m.med, "0 > -adhd.meds.bin1")
+
+df.eff.ddm = as_draws_df(m.v) %>%
+  mutate(across(starts_with("sd")|starts_with("sigma"), ~.^2)) %>%
+  mutate(
+    sumvar = sqrt(rowSums(select(., starts_with("sd")|starts_with("sigma")))),
+    e.adhd = -(2*`b_diagnosis1` + `b_diagnosis2`) / sumvar,
+    e.both = -(`b_diagnosis1` + 2*`b_diagnosis2`) / sumvar,
+    e.clin = (-`b_diagnosis1` + `b_diagnosis2`) / sumvar,
+    e.vol  = 1.5*b_phase2 / sumvar,
+    e.volg = -2.25*(`b_diagnosis1:phase2` + `b_diagnosis2:phase2`) / sumvar
+  ) %>% select(starts_with("e.")) %>%
+  pivot_longer(cols = everything(), values_to = "estimate") %>%
+  group_by(name) %>%
+  summarise(
+    ci.lo = lower_ci(estimate),
+    mean  = mean(estimate),
+    ci.hi = upper_ci(estimate),
+    interpret = interpret_cohens_d(mean)
+  )
+
+
+df.eff.med = as_draws_df(m.med) %>%
+  mutate(across(starts_with("sd")|starts_with("sigma"), ~.^2)) %>%
+  mutate(
+    sumvar = sqrt(rowSums(select(., starts_with("sd")|starts_with("sigma")))),
+    e.med = (2*`b_adhd.meds.bin1`) / sumvar
+  ) %>% select(starts_with("e.")) %>%
+  pivot_longer(cols = everything(), values_to = "estimate") %>%
+  group_by(name) %>%
+  summarise(
+    ci.lo = lower_ci(estimate),
+    mean  = mean(estimate),
+    ci.hi = upper_ci(estimate),
+    interpret = interpret_cohens_d(mean)
+  )
+
+df.cor = readRDS(file.path(brms_dir, "df_cor.rds"))
+
+
+```
+
+There was `r interpret_PP(e.adhd$hypothesis$Post.Prob)` evidence for smaller drift rate in the ADHD (*estimate* = `r round(e.adhd$hypothesis$Estimate,2)` [`r round(e.adhd$hypothesis$CI.Lower,2)`, `r round(e.adhd$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(e.adhd$hypothesis$Post.Prob*100,2)`%, *δ* = `r round(df.eff.ddm[df.eff.ddm$name == "e.adhd",]$mean, 3)` [`r round(df.eff.ddm[df.eff.ddm$name == "e.adhd",]$ci.lo, 3)`, `r round(df.eff.ddm[df.eff.ddm$name == "e.adhd",]$ci.hi, 3)`]) and the ADHD+ASD group (*estimate* = `r round(e.both$hypothesis$Estimate,2)` [`r round(e.both$hypothesis$CI.Lower,2)`, `r round(e.both$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(e.both$hypothesis$Post.Prob*100,2)`%, *δ* = `r round(df.eff.ddm[df.eff.ddm$name == "e.both",]$mean, 3)` [`r round(df.eff.ddm[df.eff.ddm$name == "e.both",]$ci.lo, 3)`, `r round(df.eff.ddm[df.eff.ddm$name == "e.both",]$ci.hi, 3)`]) than the COMP group. While across groups there was `r interpret_PP(e.vol$hypothesis$Post.Prob)` evidence in favour of higher drift rates during the volatile compared to the two stable phases (*estimate* = `r round(e.vol$hypothesis$Estimate,2)` [`r round(e.vol$hypothesis$CI.Lower,2)`, `r round(e.vol$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(e.vol$hypothesis$Post.Prob*100,2)`%, *δ* = `r round(df.eff.ddm[df.eff.ddm$name == "e.vol",]$mean, 3)` [`r round(df.eff.ddm[df.eff.ddm$name == "e.vol",]$ci.lo, 3)`, `r round(df.eff.ddm[df.eff.ddm$name == "e.vol",]$ci.hi, 3)`]), these transition effects did not differ between adults with and without ADHD, suggesting a general decrease in information processing speed across the task (*estimate* = `r round(e.volg$hypothesis$Estimate,2)` [`r round(e.volg$hypothesis$CI.Lower,2)`, `r round(e.volg$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(e.volg$hypothesis$Post.Prob*100,2)`%, *δ* = `r round(df.eff.ddm[df.eff.ddm$name == "e.volg",]$mean, 3)` [`r round(df.eff.ddm[df.eff.ddm$name == "e.volg",]$ci.lo, 3)`, `r round(df.eff.ddm[df.eff.ddm$name == "e.volg",]$ci.hi, 3)`], see **[!Figure 4]**). There was `r interpret_PP(e.clin$hypothesis$Post.Prob)` evidence towards decreased drift rate in ADHD compared to ADHD+ASD participants (*estimate* = `r round(e.clin$hypothesis$Estimate,2)` [`r round(e.clin$hypothesis$CI.Lower,2)`, `r round(e.clin$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(e.clin$hypothesis$Post.Prob*100,2)`%, *δ* = `r round(df.eff.ddm[df.eff.ddm$name == "e.clin",]$mean, 3)` [`r round(df.eff.ddm[df.eff.ddm$name == "e.clin",]$ci.lo, 3)`, `r round(df.eff.ddm[df.eff.ddm$name == "e.clin",]$ci.hi, 3)`]). Estimates were similar when we excluded one outlier of a COMP participant (see supplementary materials). Last, there was only `r interpret_PP(e.med$hypothesis$Post.Prob)` difference between ADHD or ADHD+ASD participants who took and those who did not take ADHD medication with regards to drift rate (*estimate* = `r round(e.med$hypothesis$Estimate,2)` [`r round(e.med$hypothesis$CI.Lower,2)`, `r round(e.med$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(e.med$hypothesis$Post.Prob*100,2)`%, *δ* = `r round(df.eff.med[df.eff.med$name == "e.med",]$mean, 3)` [`r round(df.eff.med[df.eff.med$name == "e.med",]$ci.lo, 3)`, `r round(df.eff.med[df.eff.med$name == "e.med",]$ci.hi, 3)`]). 
+
+While the DDM extracted parameters were based on the decision-making process and the HGF extracted belief state estimates were based on the cue-outcome associations, there were medium sized effects of associations between the participant-specific drift rate averaged across phases and the volatility parameters from the HGF. Specifically, there was `r interpret_PP(df.cor[df.cor$Parameter1 == "om3" & df.cor$Parameter2 == "v",]$pd)` evidence for an association between the drift rate and the environmental tonic volatility (*r* = `r round(df.cor[df.cor$Parameter1 == "om3" & df.cor$Parameter2 == "v",]$rho, 3)`, *posterior probability* = `r round(df.cor[df.cor$Parameter1 == "om3" & df.cor$Parameter2 == "v",]$pd*100, 2)`%) as well as `r interpret_PP(df.cor[df.cor$Parameter1 == "be3" & df.cor$Parameter2 == "v",]$pd)` evidence for a positive correlation between the drift rate and both the phasic volatility of the response model (*r* = `r round(df.cor[df.cor$Parameter1 == "be3" & df.cor$Parameter2 == "v",]$rho, 3)`, *posterior probability* = `r round(df.cor[df.cor$Parameter1 == "be3" & df.cor$Parameter2 == "v",]$pd*100, 2)`%) and `r interpret_PP(df.cor[df.cor$Parameter1 == "om2" & df.cor$Parameter2 == "v",]$pd)` evidence for a negative correlation between the drift rate and the tonic volatility of the cue-outcome associations (*r* = `r round(df.cor[df.cor$Parameter1 == "om2" & df.cor$Parameter2 == "v",]$rho, 3)`, *posterior probability* = `r round(df.cor[df.cor$Parameter1 == "om2" & df.cor$Parameter2 == "v",]$pd*100, 2)`%). 
+
+## Conventional analyses of responses and pupil sizes
+
+```{r dat2, include=FALSE}
+
+## VARIANCE
+m.var = readRDS(file.path(brms_dir, "m_var.rds"))
+h1a = hypothesis(m.var, "0 > -(2*diagnosis1 + diagnosis2)")
+e1 = hypothesis(m.var, "0 > -(diagnosis1 + 2*diagnosis2)", alpha = 0.025)
+e2 = hypothesis(m.var, "0 > -(diagnosis1 - diagnosis2)", alpha = 0.025)
+e3 = hypothesis(m.var, "0 > -(2*diagnosis1:phase1 + diagnosis2:phase1  
+                - (2*diagnosis1:phase2 + diagnosis2:phase2))", 
+                alpha = 0.025)
+e4 = hypothesis(m.var, "0 > -(diagnosis1:phase1 + 2*diagnosis2:phase1 
+                - (diagnosis1:phase2 + 2*diagnosis2:phase2))", 
+                alpha = 0.025)
+df.eff.var = as_draws_df(m.var) %>%
+  mutate(across(starts_with("sd")|starts_with("sigma"), ~.^2)) %>%
+  mutate(
+    sumvar = sqrt(rowSums(select(., starts_with("sd")|starts_with("sigma")))),
+    h1a    = (2*b_diagnosis1 + b_diagnosis2) / sumvar,
+    e1     = (b_diagnosis1 + 2*b_diagnosis2) / sumvar,
+    e2     = (b_diagnosis1 - b_diagnosis2) / sumvar,
+    e3     = (`b_diagnosis1:phase1` + 2*`b_diagnosis2:phase1` - 
+                `b_diagnosis1:phase2` - 2*`b_diagnosis2:phase2`) / sumvar,
+    e4     = (2*`b_diagnosis1:phase1` + `b_diagnosis2:phase1` - 
+                2*`b_diagnosis1:phase2` - `b_diagnosis2:phase2`) / sumvar
+  ) %>% select(starts_with("e")|starts_with("h")) %>%
+  pivot_longer(cols = everything(), values_to = "estimate") %>%
+  group_by(name) %>%
+  summarise(
+    ci.lo = lower_ci(estimate),
+    mean  = mean(estimate),
+    ci.hi = upper_ci(estimate),
+    interpret = interpret_cohens_d(mean)
+  )
+
+## REACTION TIME
+m.pal = readRDS(file.path(brms_dir, "m_pal.rds"))
+h1c = hypothesis(m.pal, "0 > 2*diagnosis1:expected1 + diagnosis2:expected1")
+df.eff.pal = as_draws_df(m.pal) %>%
+  mutate(across(starts_with("sd")|starts_with("sigma"), ~.^2)) %>%
+  mutate(
+    sumvar = sqrt(rowSums(select(., starts_with("sd")|starts_with("sigma")))),
+    h1c    = -(2*`b_diagnosis1:expected1` + `b_diagnosis2:expected1`) / sumvar
+  ) %>% select(h1c) %>%
+  pivot_longer(cols = everything(), values_to = "estimate") %>%
+  group_by(name) %>%
+  summarise(
+    ci.lo = lower_ci(estimate),
+    mean  = mean(estimate),
+    ci.hi = upper_ci(estimate),
+    interpret = interpret_cohens_d(mean)
+  )
+
+## PUPIL SIZE
+m.pup = readRDS(file.path(brms_dir, "m_pup.rds"))
+h2b = hypothesis(m.pup, "0 > (4*diagnosis1:expected1 + 2*diagnosis2:expected1)")
+
+df.eff.pup = as_draws_df(m.pup) %>%
+  mutate(across(starts_with("sd")|starts_with("sigma"), ~.^2)) %>%
+  mutate(
+    sumvar = sqrt(rowSums(select(., starts_with("sd")|starts_with("sigma")))),
+    h2b    = -(4*`b_diagnosis1:expected1` + 2*`b_diagnosis2:expected1`) / sumvar
+  ) %>% select(h2b) %>%
+  pivot_longer(cols = everything(), values_to = "estimate") %>%
+  group_by(name) %>%
+  summarise(
+    ci.lo = lower_ci(estimate),
+    mean  = mean(estimate),
+    ci.hi = upper_ci(estimate),
+    interpret = interpret_cohens_d(mean)
+  )
+
+## ACCURACY
+aov.acc = readRDS(file.path(brms_dir, "aov_acc.rds"))
+bf.acc = aov.acc@bayesFactor %>% arrange(desc(bf))
+
+
+```
+
+Reaction time variance was credibly larger in ADHD than in COMP participants (*estimate* = `r round(h1a$hypothesis$Estimate,2)` [`r round(h1a$hypothesis$CI.Lower,2)`, `r round(h1a$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h1a$hypothesis$Post.Prob*100,2)`%, *δ* = `r round(df.eff.var[df.eff.var$name == "h1a",]$mean, 3)` [`r round(df.eff.var[df.eff.var$name == "h1a",]$ci.lo, 3)`, `r round(df.eff.var[df.eff.var$name == "h1a",]$ci.hi, 3)`], see **[!Figure 2]**), as expected. Exploration revealed `r interpret_PP(e1$hypothesis$Post.Prob)` evidence for larger reaction time variances in ADHD+ASD participants as well (*estimate* = `r round(e1$hypothesis$Estimate,2)` [`r round(e1$hypothesis$CI.Lower,2)`, `r round(e1$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(e1$hypothesis$Post.Prob*100,2)`%, *δ* = `r round(df.eff.var[df.eff.var$name == "e1",]$mean, 3)` [`r round(df.eff.var[df.eff.var$name == "e1",]$ci.lo, 3)`, `r round(df.eff.var[df.eff.var$name == "e1",]$ci.hi, 3)`]). Furthermore, there was `r interpret_PP(e3$hypothesis$Post.Prob)` evidence in favour of transition effects from the prevolatile to the volatile phase for the ADHD (*estimate* = `r round(e3$hypothesis$Estimate,2)` [`r round(e3$hypothesis$CI.Lower,2)`, `r round(e3$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(e3$hypothesis$Post.Prob*100,2)`%, *δ* = `r round(df.eff.var[df.eff.var$name == "e3",]$mean, 3)` [`r round(df.eff.var[df.eff.var$name == "e3",]$ci.lo, 3)`, `r round(df.eff.var[df.eff.var$name == "e3",]$ci.hi, 3)`]) and `r interpret_PP(e4$hypothesis$Post.Prob)` evidence for the ADHD+ASD (*estimate* = `r round(e4$hypothesis$Estimate,2)` [`r round(e4$hypothesis$CI.Lower,2)`, `r round(e4$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(e4$hypothesis$Post.Prob*100,2)`%, *δ* = `r round(df.eff.var[df.eff.var$name == "e4",]$mean, 3)` [`r round(df.eff.var[df.eff.var$name == "e4",]$ci.lo, 3)`, `r round(df.eff.var[df.eff.var$name == "e4",]$ci.hi, 3)`]) participants in comparison to the COMP participants. Regarding the effect of expectancy in reaction times, we found `r interpret_PP(h1c$hypothesis$Post.Prob)` evidence for a small difference between ADHD and COMP participants which did not meet the credibility threshold (*estimate* = `r round(h1c$hypothesis$Estimate,2)` [`r round(h1c$hypothesis$CI.Lower,2)`, `r round(h1c$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h1c$hypothesis$Post.Prob*100,2)`%, *δ* = `r round(df.eff.pal[df.eff.pal$name == "h1c",]$mean, 3)` [`r round(df.eff.pal[df.eff.pal$name == "h1c",]$ci.lo, 3)`, `r round(df.eff.pal[df.eff.pal$name == "h1c",]$ci.hi, 3)`]), thus not supporting our hypothesis. Evidence for a difference in the effect of expectancy on pupil sizes was even weaker (*estimate* = `r round(h2b$hypothesis$Estimate,2)` [`r round(h2b$hypothesis$CI.Lower,2)`, `r round(h2b$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h2b$hypothesis$Post.Prob*100,2)`%, *δ* = `r round(df.eff.pup[df.eff.pup$name == "h2b",]$mean, 3)` [`r round(df.eff.pup[df.eff.pup$name == "h2b",]$ci.lo, 3)`, `r round(df.eff.pup[df.eff.pup$name == "h2b",]$ci.hi, 3)`]), again not supporting our hypothesis. Last, our exploration of accuracies revealed the model including the predictors group, expectancy and difficulty to fit the model best (log(*BF*) = `r round(bf.acc$bf[1], 2)`). For more values and figures, please consult the supplementary materials. 

@@ -1,0 +1,979 @@
+---
+title: "S4: behavioural, HGF-based analysis with brms"
+author: "I. S. Plank"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    number_sections: true
+fontsize: 10pt
+#geometry: margin=0.5in
+---
+  
+```{r settings, include=FALSE}
+
+knitr::opts_chunk$set(echo = T, warning = F, message = F, fig.align = 'center', fig.width = 7.4)
+ls.packages = c("knitr",# kable
+    "ggplot2",          # plots
+    "brms",             # Bayesian lmms
+    "designr",          # simLMM
+    "bridgesampling",   # bridge_sampler
+    "tidyverse",        # tibble stuff
+    "ggpubr",           # ggarrange
+    "ggrain",           # geom_rain
+    "bayesplot",        # plots for posterior predictive checks
+    "SBC",              # plots for checking computational faithfulness
+    "rstatix",          # anova
+    "easystats",        # correlation
+    "BayesFactor",      # anovaBF
+    "bayestestR"        # equivalence_test
+)
+
+lapply(ls.packages, library, character.only=TRUE)
+
+# set cores
+options(mc.cores = parallel::detectCores())
+
+# set options for brms
+options(brms.backend = "cmdstanr")
+t = 2
+
+# Setup caching of results
+brms_dir = "./_brms_models"
+if(!dir.exists(brms_dir)) {
+  dir.create(brms_dir)
+}
+
+# load helper functions
+source('../helper/createMs.R')
+
+lower_ci = function(var) {
+  unname(quantile(var, probs = 0.025))
+}
+upper_ci = function(var) {
+  unname(quantile(var, probs = 0.975))
+}
+
+# scale function for vector
+scale_this = function(x){
+  (x - mean(x, na.rm=TRUE)) / sd(x, na.rm=TRUE)
+}
+
+# graph settings 
+c_light = "#a9afb2"; c_light_highlight = "#8ea5b2"; c_mid = "#6b98b2" 
+c_mid_highlight = "#3585b2"; c_dark = "#0072b2"; c_dark_highlight = "#0058b2" 
+c_green = "#009E73"
+sz = 1
+a = 0.5
+
+# custom colour palette
+col.grp = c("#FFC107", "#004D40", "#1E88E5")
+col.cnd = c("#5D3A9B", "#E66100")
+
+```
+
+<style type="text/css">
+  .main-container {
+    max-width: 1100px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+</style>
+  
+# Introduction
+  
+This R Markdown script analyses data from the PAL (probabilistic associative learning) task of the EMBA project. HGF parameters were extrated based on the subject-specific reaction times beforehand in MATLAB. 
+
+## Some general settings
+
+```{r set}
+
+# number of simulations
+nsim = 250
+
+# set number of iterations and warmup for models
+iter = 3000
+warm = 1000
+
+# set the seed
+set.seed(2468)
+
+```
+
+## Package versions
+
+The following packages are used in this RMarkdown file: 
+  
+```{r lib_versions, echo=F}
+
+print(R.Version()$version.string)
+
+for (package in ls.packages) {
+  print(sprintf("%s version %s", package, packageVersion(package)))
+}
+
+```
+
+## Preparation
+
+First, we load the parameters from the winning model.
+
+```{r prep, fig.height=4}
+
+# get HGF parameters  
+df.hgf = read_csv(file.path("HGF_results/main", "eHGF-L21_results.csv")) %>%
+  merge(., read_csv("../data/PAL-ADHD_data.csv", show_col_types = F) %>%
+          select(subID, EDT, adhd.meds.bin) %>% distinct()) %>%
+  mutate_if(is.character, as.factor)
+
+# get belief state trajectories
+df.trj = read_csv(file.path("HGF_results/main", "eHGF-L21_traj.csv"))
+
+# extract the absolute changes in learning rate for the phases
+df.upd = df.trj %>%
+  select(subID, diagnosis, trl, alpha2, alpha3) %>% ungroup() %>%
+  mutate(
+    # code the phases > only take the beginning and end of volatile
+    phase = case_when(
+      trl < 73  ~ "pre",
+      trl > 264 ~ "post",
+      trl < 145 ~ "vol1",
+      trl > 192 ~ "vol2"
+    )
+  ) %>%
+  drop_na() %>%
+  group_by(subID, diagnosis, phase) %>%
+  summarise(
+    alpha2 = median(alpha2),
+    alpha3 = median(alpha3)
+  ) %>%
+  pivot_wider(names_from = phase, id_cols = c(subID, diagnosis), values_from = starts_with("alpha")) %>%
+  group_by(subID, diagnosis) %>%
+  summarise(
+    alpha2_pre2vol  = abs(alpha2_pre  - alpha2_vol1),
+    alpha2_vol2post = abs(alpha2_post - alpha2_vol2),
+    alpha3_pre2vol  = abs(alpha3_pre  - alpha3_vol1),
+    alpha3_vol2post = abs(alpha3_post - alpha3_vol2)
+  ) %>% 
+  pivot_longer(cols = starts_with("alpha")) %>%
+  separate(name, into = c("level", "change")) %>%
+  merge(., df.hgf %>% select(subID, EDT)) %>%
+  mutate_if(is.character, as.factor)
+
+# check whether there are LME differences between the diagnostic groups
+kable(df.hgf %>% group_by(diagnosis) %>% shapiro_test(LME)) # all normally distributed
+if (file.exists(file.path(brms_dir, "aov_lme.rds"))) {
+  aov.lme = readRDS(file.path(brms_dir, "aov_lme.rds"))
+} else {
+  aov.lme = anovaBF(LME ~ diagnosis, data = df.hgf)
+  saveRDS(aov.lme, file.path(brms_dir, "aov_lme.rds"))
+}
+aov.lme@bayesFactor
+
+```
+
+There is `r interpret_bf(aov.lme@bayesFactor$bf, log = T)` a difference in LME between diagnostic groups. This suggests that the eHGF model fit comparably well to the subjects of the different groups. Therefore, we move on to analyse its parameters. 
+
+The response model best fitting to our data was the one employed by Lawson et al. (2021): 
+$$\log{RT} = \beta_0 + \beta_1 \times surprise_{stimulus} + \beta_2 \times pwPE + \beta_3 \times volatility_{phasic}$$
+Next, we use sum contrast coding for all of our categorical predictors.
+
+```{r contrasts}
+
+# set and print the contrasts
+contrasts(df.hgf$diagnosis) = contr.sum(3)
+contrasts(df.hgf$diagnosis)
+contrasts(df.hgf$adhd.meds.bin) = contr.sum(2)[c(2,1)]
+contrasts(df.hgf$adhd.meds.bin)
+
+contrasts(df.upd$diagnosis) = contr.sum(3)[c(2,1,3),]
+contrasts(df.upd$diagnosis)
+contrasts(df.upd$change) = contr.sum(2)
+contrasts(df.upd$change)
+contrasts(df.upd$level) = contr.sum(2)
+contrasts(df.upd$level)
+
+```
+
+# H3c: second level tonic volatility
+
+## Model setup
+
+```{r model_om2}
+
+# model formula
+f.om2 = brms::bf( om2 ~ diagnosis )
+
+# set weakly informative priors
+priors = c(
+  prior(normal(0, 4),  class = Intercept),
+  prior(normal(0, 0.50),  class = sigma),
+  prior(normal(0, 0.50),  class = b)
+)
+
+# change Intercept based on empirical priors used in the HGF model
+priors = priors %>%
+  mutate(
+    prior = if_else(
+      class == "Intercept", 
+      gsub("\\(.*,", paste0("(", mean(df.hgf$om2mu), ", "), prior), prior),
+    prior = if_else(
+      class == "Intercept", 
+      gsub(" .*\\)", paste0(" ", mean(df.hgf$om2sa), ")"), prior), prior)
+  )
+
+kable(priors)
+
+```
+
+## Posterior predictive checks
+
+As the next step, we fit the model, check whether there are divergence or rhat issues, and then check whether the chains have converged.
+
+```{r postpc_om2_1, fig.height=2, message=T}
+
+# fit the final model
+m.om2 = brm(f.om2, seed = 2288,
+            df.hgf, prior = priors,
+            iter = iter, warmup = warm,
+            backend = "cmdstanr", threads = threading(t),
+            file = file.path(brms_dir, "m_hgf_om2"),
+            save_pars = save_pars(all = TRUE)
+            )
+rstan::check_hmc_diagnostics(m.om2$fit)
+
+# check that rhats are below 1.01
+sum(brms::rhat(m.om2) >= 1.01, na.rm = T)
+
+# check the trace plots
+post.draws = as_draws_df(m.om2)
+mcmc_trace(post.draws, regex_pars = "^b_",
+           facet_args = list(ncol = 3)) +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3))
+
+```
+
+This model has no pathological behaviour with E-BFMI, no divergent sample and no rhats that are higher or equal to 1.01. Therefore, we go ahead and perform our posterior predictive checks. 
+
+```{r postpc_om2_2, fig.height=4}
+
+# get posterior predictions
+post.pred = posterior_predict(m.om2, ndraws = nsim)
+
+# check the fit of the predicted data compared to the real data
+p1 = pp_check(m.om2, ndraws = nsim) + 
+  theme_bw() + theme(legend.position = "none")
+
+# distributions of means compared to the real values per group
+p2 = ppc_stat_grouped(df.hgf$om2, post.pred, df.hgf$diagnosis) + 
+  theme_bw() + theme(legend.position = "none")
+
+p = ggarrange(p1, p2, 
+          nrow = 2, ncol = 1, labels = "AUTO")
+annotate_figure(p, top = text_grob("Posterior predictive checks", 
+                                   face = "bold", size = 14))
+
+```
+
+Similar to above, the simulated data based on the model fits well with the real data, although it doesn't reproduce the overall shape. 
+
+## Inferences
+
+Now that we are convinced that we can trust our model, we have a look at its estimate and use the hypothesis function to assess our hypotheses and perform explorative tests. 
+
+```{r inf_om2, fig.height=3}
+
+# print a summary
+summary(m.om2)
+
+# get the estimates and compute group comparisons
+df.m.om2 = post.draws %>% 
+  select(starts_with("b_")) %>%
+  mutate(
+    ADHD   = b_Intercept + b_diagnosis1,
+    BOTH   = b_Intercept + b_diagnosis2,
+    COMP   = b_Intercept - b_diagnosis1 - b_diagnosis2,
+    `h3c_ADHDvCOMP` = ADHD - COMP,
+    `e1_BOTHvCOMP` = BOTH - COMP,
+    `e2_ADHDvBOTH` = ADHD - BOTH,
+  )
+
+# plot the posterior distributions
+df.m.om2 %>%
+  select(ADHD, BOTH, COMP) %>%
+  pivot_longer(cols = everything(), names_to = "coef", values_to = "estimate") %>%
+  ggplot(aes(x = estimate, y = coef), fill = c_light) +
+  geom_vline(xintercept = mean(df.m.om2$b_Intercept), linetype = 'dashed') +
+  ggdist::stat_halfeye(alpha = 0.7) + ylab(NULL) + theme_bw() +
+  theme(legend.position = "none")
+
+# H3c: COMP != ADHD
+h3c = hypothesis(m.om2, "0 < 2*diagnosis1 + diagnosis2")
+h3c$hypothesis
+
+# Explore BOTH
+e1  = hypothesis(m.om2, "0 < diagnosis1 + 2*diagnosis2", alpha = 0.025)
+e1$hypothesis
+
+e2  = hypothesis(m.om2, "diagnosis1 > diagnosis2", alpha= 0.025)
+e2$hypothesis
+
+# equivalence
+equivalence_test(df.m.om2 %>% select(starts_with("h") | starts_with("e")), 
+                 range = rope_range(m.om2))
+
+# calculate effect sizes
+df.effect = post.draws %>%
+  mutate(across(starts_with("sd")|starts_with("sigma"), ~.^2)) %>%
+  mutate(
+    sumvar = sqrt(rowSums(select(., starts_with("sd")|starts_with("sigma")))),
+    h3c = (2*`b_diagnosis1` + `b_diagnosis2`) / sumvar,
+    e1  = (`b_diagnosis1` + 2*`b_diagnosis2`) / sumvar,
+    e2  = -(-`b_diagnosis1` + `b_diagnosis2`) / sumvar
+  )
+
+kable(df.effect %>% select(starts_with("e")|starts_with("h")) %>%
+        pivot_longer(cols = everything(), values_to = "estimate") %>%
+        group_by(name) %>%
+        summarise(
+          ci.lo = lower_ci(estimate),
+          mean  = mean(estimate),
+          ci.hi = upper_ci(estimate),
+          interpret = interpret_cohens_d(mean)
+        ), digits = 3
+)
+
+
+```
+
+*estimate* = `r round(h3c$hypothesis$Estimate,2)` [`r round(h3c$hypothesis$CI.Lower,2)`, `r round(h3c$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h3c$hypothesis$Post.Prob*100,2)`%
+
+# Exploration: predicting ADHD diagnosis with HGF parameters
+
+Predicting whether someone has ADHD or not based on the HGF parameters. 
+
+## Model setup
+
+```{r bern}
+
+# recode the order and scale the predictors
+df.hgf = df.hgf %>%
+  mutate(
+    group = case_when(
+      diagnosis == "COMP" ~ 0,
+      diagnosis != "COMP" & adhd.meds.bin == "FALSE" ~ 1,
+      T ~ NA
+    ),
+    group.meds = if_else(adhd.meds.bin == "FALSE", 
+                         if_else(diagnosis == "COMP", NA, 0), 
+                         1)
+  ) %>% mutate(across(c(be1, be2, be3, ze, om2, om3), scale_this, .names = "s{.col}"))
+
+kable(df.hgf %>% select(diagnosis, group, group.meds) %>% distinct(),
+      caption = "Coding for the order in the Bernoulli models")
+
+# model formula
+f = brms::bf( group ~ sbe1 + sbe2 + sbe3 + sze + som2 + som3 )
+f
+
+# Bernoulli
+priors.bern = c(
+  prior(normal(0.50, 0.50),  class = Intercept), # roughly 1:1
+  prior(normal(0,    1.00),  class = b)
+)
+
+```
+
+## Posterior predictive checks
+
+```{r postpc_bern1, fig.height=4, message=T}
+
+# fit the final model
+m = brm(f,
+        df.hgf, prior = priors.bern,
+        family = bernoulli(link = "logit"),
+        iter = iter, warmup = warm,
+        backend = "cmdstanr", threads = threading(8),
+        file = file.path(brms_dir, "m_hgf_bern_adhd"),
+        seed = 4858
+        )
+rstan::check_hmc_diagnostics(m$fit)
+
+# check that rhats are below 1.01
+sum(brms::rhat(m) >= 1.01, na.rm = T)
+
+# check the trace plots
+post.draws = as_draws_df(m)
+mcmc_trace(post.draws, regex_pars = "^b_",
+           facet_args = list(ncol = 4)) +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3))
+
+```
+
+
+This model has no pathological behaviour with E-BFMI, no divergent sample and no rhats that are higher or equal to 1.01. Therefore, we go ahead and perform our posterior predictive checks.
+
+```{r postpc_bern2, fig.height=2}
+
+# get posterior predictions
+post.pred = posterior_predict(m, ndraws = nsim)
+
+# check the fit of the predicted data compared to the real data
+p = ppc_bars(df.hgf[!is.na(df.hgf$group),]$group, post.pred) + 
+  theme_bw() + theme(legend.position = "none")
+
+annotate_figure(p, top = text_grob("Posterior predictive checks", 
+                                   face = "bold", size = 14))
+
+```
+
+The overall simulated data fits reasonably well. Now that we are convinced that we can trust our model, we have a look at its estimates.
+
+## Inferences
+
+```{r inf_bern, fig.height=4.25, fig.width=4}
+
+# print a summary
+summary(m)
+
+# plot the posterior distributions
+post.draws %>% 
+  select(starts_with("b_") & !starts_with("b_Int")) %>%
+  pivot_longer(cols = starts_with("b_"), names_to = "coef", values_to = "estimate") %>%
+  mutate(
+    coef = substr(coef, 3, nchar(coef)),
+    coef = fct_reorder(coef, desc(estimate))
+  )  %>% 
+  group_by(coef) %>%
+  mutate(
+    cred = case_when(
+      (mean(estimate) < 0 & quantile(estimate, probs = 0.975) < 0) |
+        (mean(estimate) > 0 & quantile(estimate, probs = 0.025) > 0) ~ "credible",
+      T ~ "not credible"
+    )
+  ) %>% ungroup() %>%
+  ggplot(aes(x = estimate, y = coef, fill = cred)) +
+  geom_vline(xintercept = 0, linetype = 'dashed') +
+  ggdist::stat_halfeye(alpha = 0.7) + ylab(NULL) +
+  scale_fill_manual(values = c("credible" = c_dark, "not credible" = c_light)) + 
+  theme_bw() +  theme(legend.position = "bottom", legend.direction = "horizontal")
+
+e1 = hypothesis(m, "0 > -som2", alpha = 0.025)
+e1$hypothesis
+
+equivalence_test(m)
+
+# effect sizes
+kable(post.draws %>% select(starts_with("b_s")) %>%
+        pivot_longer(cols = everything(), values_to = "estimate") %>%
+        group_by(name) %>%
+        summarise(
+          ci.lo = lower_ci(estimate),
+          mean  = mean(estimate),
+          ci.hi = upper_ci(estimate),
+          interpret = interpret_cohens_d(mean)
+        ), digits = 3
+)
+
+```
+
+# Exploration: predicting ADHD medication with HGF parameters
+
+Predicting whether someone with ADHD is taking medication or not based on the HGF parameters. 
+
+## Model setup
+
+```{r bern_med}
+
+# model formula
+f = brms::bf( group.meds ~ sbe1 + sbe2 + sbe3 + sze + som2 + som3 )
+f
+
+```
+
+## Posterior predictive checks
+
+```{r postpc_bern_med1, fig.height=4, message=T}
+
+# fit the final model
+m = brm(f,
+        df.hgf, prior = priors.bern,
+        family = bernoulli(link = "logit"),
+        iter = iter, warmup = warm,
+        backend = "cmdstanr", threads = threading(8),
+        file = file.path(brms_dir, "m_hgf_bern_meds"),
+        seed = 8428
+        )
+rstan::check_hmc_diagnostics(m$fit)
+
+# check that rhats are below 1.01
+sum(brms::rhat(m) >= 1.01, na.rm = T)
+
+# check the trace plots
+post.draws = as_draws_df(m)
+mcmc_trace(post.draws, regex_pars = "^b_",
+           facet_args = list(ncol = 4)) +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3))
+
+```
+
+
+This model has no pathological behaviour with E-BFMI, no divergent sample and no rhats that are higher or equal to 1.01. Therefore, we go ahead and perform our posterior predictive checks.
+
+```{r postpc_bern_med2, fig.height=2}
+
+# get posterior predictions
+post.pred = posterior_predict(m, ndraws = nsim)
+
+# check the fit of the predicted data compared to the real data
+p = ppc_bars(df.hgf[!is.na(df.hgf$group.meds),]$group.meds, post.pred) + 
+  theme_bw() + theme(legend.position = "none")
+
+annotate_figure(p, top = text_grob("Posterior predictive checks", 
+                                   face = "bold", size = 14))
+
+```
+
+The overall simulated data fits reasonably well. Now that we are convinced that we can trust our model, we have a look at its estimates.
+
+## Inferences
+
+```{r inf_bern_med, fig.height=4.25, fig.width=4}
+
+# print a summary
+summary(m)
+
+# plot the posterior distributions
+post.draws %>% 
+  select(starts_with("b_") & !starts_with("b_Int")) %>%
+  pivot_longer(cols = starts_with("b_"), names_to = "coef", values_to = "estimate") %>%
+  mutate(
+    coef = substr(coef, 3, nchar(coef)),
+    coef = fct_reorder(coef, desc(estimate))
+  )  %>% 
+  group_by(coef) %>%
+  mutate(
+    cred = case_when(
+      (mean(estimate) < 0 & quantile(estimate, probs = 0.975) < 0) |
+        (mean(estimate) > 0 & quantile(estimate, probs = 0.025) > 0) ~ "credible",
+      T ~ "not credible"
+    )
+  ) %>% ungroup() %>%
+  ggplot(aes(x = estimate, y = coef, fill = cred)) +
+  geom_vline(xintercept = 0, linetype = 'dashed') +
+  ggdist::stat_halfeye(alpha = 0.7) + ylab(NULL) +
+  scale_fill_manual(values = c("credible" = c_dark, "not credible" = c_light)) + 
+  theme_bw() +  theme(legend.position = "bottom", legend.direction = "horizontal")
+
+e1 = hypothesis(m, "0 > som2", alpha = 0.025)
+e1$hypothesis
+
+equivalence_test(m)
+
+# effect sizes
+kable(post.draws %>% select(starts_with("b_s")) %>%
+        pivot_longer(cols = everything(), values_to = "estimate") %>%
+        group_by(name) %>%
+        summarise(
+          ci.lo = lower_ci(estimate),
+          mean  = mean(estimate),
+          ci.hi = upper_ci(estimate),
+          interpret = interpret_cohens_d(mean)
+        ), digits = 3
+)
+
+```
+
+
+# Plots for HGF parameters
+
+```{r plot_hgf, fig.height=6}
+
+p = df.hgf %>%
+  mutate(diagnosis = if_else(diagnosis == "BOTH", "ADHD+ASD", diagnosis)) %>%
+  select(subID, diagnosis, be1, be2, be3, ze, om2, om3) %>% #
+  pivot_longer(cols = c(be1, be2, be3, ze, om2, om3), 
+               names_to = "parameter") %>%
+  mutate(
+    parameter = factor(case_match(parameter,
+                           "be1" ~ "stimulus surprise",
+                           "be2" ~ "precision-weighted PE",
+                           "be3" ~ "phasic volatility",
+                           "ze"  ~ "Sigma (decision noise)",
+                           "om2" ~ "cue-outcome tonic volatility",
+                           "om3" ~ "environmental tonic volatility"
+                           ), levels = c("cue-outcome tonic volatility", 
+                                         "environmental tonic volatility", 
+                                         "stimulus surprise", 
+                                         "precision-weighted PE", 
+                                         "phasic volatility", 
+                                         "Sigma (decision noise)"))
+  ) %>%
+  ggplot(aes(x = 1, y = value, fill = diagnosis, colour = diagnosis)) + #
+  geom_rain(rain.side = 'r',
+boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
+violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
+boxplot.args.pos = list(
+  position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
+),
+point.args = list(show.legend = FALSE, alpha = .5),
+violin.args.pos = list(
+  width = 0.6, position = position_nudge(x = 0.16)),
+point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
+  scale_fill_manual(values = col.grp) +
+  scale_color_manual(values = col.grp) +
+  facet_wrap(. ~ parameter, scales = "free", ncol = 3) +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_blank(), 
+        axis.title.y = element_blank(), axis.title.x = element_blank(),
+        text = element_text(size = 13), axis.text.x=element_blank(), 
+        axis.ticks.x=element_blank(), legend.direction = "horizontal",
+        legend.title = element_blank(),
+        legend.margin=margin(0,0,0,0),
+        legend.box.margin=margin(-5,0,0,0))
+
+p.a = annotate_figure(p, top = text_grob("Participant-specific HGF parameters", 
+                                   face = "bold", size = 14))
+
+ggsave("plots/FigHGF.svg", plot = p.a, units = "cm", width = 27, height = 13.5)
+
+# include medication
+df.hgf %>%
+  mutate(diagnosis = if_else(diagnosis == "BOTH", "ADHD+ASD", diagnosis),
+         adhd.meds.bin = case_when(adhd.meds.bin == "TRUE" ~ "medicated", 
+                                   T ~ ""),
+         group = paste0(diagnosis, adhd.meds.bin)) %>%
+  select(subID, diagnosis, group, be1, be2, be3, ze, om2, om3) %>% #
+  pivot_longer(cols = c(be1, be2, be3, ze, om2, om3), 
+               names_to = "parameter") %>%
+  mutate(
+    parameter = factor(case_match(parameter,
+                           "be1" ~ "stimulus surprise",
+                           "be2" ~ "precision-weighted PE",
+                           "be3" ~ "phasic volatility",
+                           "ze"  ~ "Sigma (decision noise)",
+                           "om2" ~ "2nd tonic volatility",
+                           "om3" ~ "3rd tonic volatility"
+                           ), levels = c("2nd tonic volatility", 
+                                         "3rd tonic volatility", 
+                                         "stimulus surprise", 
+                                         "precision-weighted PE", 
+                                         "phasic volatility", 
+                                         "Sigma (decision noise)"))
+  ) %>%
+  ggplot(aes(x = diagnosis, y = value, fill = group, colour = group)) + #
+  geom_rain(rain.side = 'r',
+boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
+violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
+boxplot.args.pos = list(
+  position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
+),
+point.args = list(show.legend = FALSE, alpha = .5),
+violin.args.pos = list(
+  width = 0.6, position = position_nudge(x = 0.16)),
+point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
+  #scale_fill_manual(values = col.grp) +
+  #scale_color_manual(values = col.grp) +
+  facet_wrap(. ~ parameter, scales = "free", ncol = 3) +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_blank(), 
+        axis.title.y = element_blank(), axis.title.x = element_blank(),
+        text = element_text(size = 13), axis.text.x=element_blank(), 
+        axis.ticks.x=element_blank(), legend.direction = "horizontal",
+        legend.title = element_blank(),
+        legend.margin=margin(0,0,0,0),
+        legend.box.margin=margin(-5,0,0,0))
+
+
+```
+
+# Learning rate update - volatile to stable
+
+## Model setup
+
+```{r model_alpha}
+
+# model formula
+f.alpha = brms::bf( value ~ diagnosis * level * change + (level + change | subID) )
+
+# set weakly informative priors taking Lawson 2017 into consideration
+priors = c(
+  prior(normal(-5, 2),    class = Intercept),
+  prior(normal(0.5, 0.5), class = sigma),
+  prior(normal(0.5, 0.5), class = sd),
+  prior(lkj(2),           class = cor),
+  prior(normal(0,   1.0),   class = b) # probably big difference between levels
+)
+
+```
+
+## Posterior predictive checks
+
+As the next step, we fit the model, check whether there are divergence or rhat issues, and then check whether the chains have converged.
+
+```{r postpc_alpha_1, fig.height=8, message=T}
+
+# fit the final model
+m.alpha = brm(f.alpha, family = lognormal,
+            df.upd, prior = priors, seed = 6688,
+            iter = iter, warmup = warm,
+            backend = "cmdstanr", threads = threading(t),
+            file = file.path(brms_dir, "m_hgf_alpha"),
+            save_pars = save_pars(all = TRUE)
+            )
+rstan::check_hmc_diagnostics(m.alpha$fit)
+
+# check that rhats are below 1.01
+sum(brms::rhat(m.alpha) >= 1.01, na.rm = T)
+
+# check the trace plots
+post.draws = as_draws_df(m.alpha)
+mcmc_trace(post.draws, regex_pars = "^b_",
+           facet_args = list(ncol = 3)) +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3))
+
+```
+
+This model has no pathological behaviour with E-BFMI, no divergent sample and no rhats that are higher or equal to 1.01. Therefore, we go ahead and perform our posterior predictive checks. 
+
+```{r postpc_alpha_2, fig.height=8}
+
+# get posterior predictions
+post.pred = posterior_predict(m.alpha, ndraws = nsim)
+
+# check the fit of the predicted data compared to the real data
+p1 = pp_check(m.alpha, ndraws = nsim) + 
+  theme_bw() + theme(legend.position = "none") + xlim(0, 0.10)
+
+# distributions of means compared to the real values per group
+p2 = ppc_stat_grouped(df.upd$value, post.pred, df.upd$diagnosis) + 
+  theme_bw() + theme(legend.position = "none")
+p3 = ppc_stat_grouped(df.upd$value, post.pred, df.upd$level) + 
+  theme_bw() + theme(legend.position = "none")
+p4 = ppc_stat_grouped(df.upd$value, post.pred, df.upd$change) + 
+  theme_bw() + theme(legend.position = "none")
+
+p = ggarrange(p1, p2, p3, p4, ncol = 1)
+annotate_figure(p, top = text_grob("Posterior predictive checks", 
+                                   face = "bold", size = 14))
+
+```
+This model fits the data well enough. 
+
+## Inferences
+
+Now that we are convinced that we can trust our model, we have a look at its estimate and use the hypothesis function to assess our hypotheses and perform explorative tests. 
+
+```{r inf_alpha, fig.height=8}
+
+# print a summary
+summary(m.alpha)
+
+# get the estimates and compute group comparisons
+df.m.alpha = post.draws %>% 
+  select(starts_with("b_"))
+
+# plot the posterior distributions
+df.m.alpha %>%
+  select(starts_with("b_")) %>%
+  pivot_longer(cols = starts_with("b_"), names_to = "coef", values_to = "estimate") %>%
+  subset(!startsWith(coef, "b_Int")) %>%
+  mutate(
+    coef = substr(coef, 3, nchar(coef)),
+    coef = str_replace_all(coef, ":", " x "),
+    coef = str_replace_all(coef, "diagnosis1", "ADHD"),
+    coef = str_replace_all(coef, "diagnosis2", "BOTH"),
+    coef = str_replace_all(coef, "level1", "alpha2"),
+    coef = str_replace_all(coef, "change1", "pre2vol"),
+    coef = fct_reorder(coef, desc(estimate))
+  ) %>% 
+  group_by(coef) %>%
+  mutate(
+    cred = case_when(
+      (mean(estimate) < 0 & quantile(estimate, probs = 0.975) < 0) |
+        (mean(estimate) > 0 & quantile(estimate, probs = 0.025) > 0) ~ "credible",
+      T ~ "not credible"
+    )
+  ) %>% ungroup() %>%
+  ggplot(aes(x = estimate, y = coef, fill = cred)) +
+  geom_vline(xintercept = 0, linetype = 'dashed') +
+  ggdist::stat_halfeye(alpha = 0.7) + ylab(NULL) + theme_bw() +
+  scale_fill_manual(values = c(c_dark, c_light)) + theme(legend.position = "none")
+
+# get the design matrix to figure out how to set the contrasts
+df.des = cbind(df.upd, 
+               model.matrix(~ diagnosis * level * change, data = df.upd)) %>%
+  ungroup() %>%
+  select(-subID, -value) %>% distinct()
+
+# H4c ADHD != COMP
+h4c = hypothesis(m.alpha, "0 < 2*diagnosis1 + diagnosis2", alpha = 0.025)
+h4c$hypothesis
+
+# Exploration: alpha3 ADHD != COMP
+t(df.des %>% 
+    filter(level == "alpha3" & diagnosis != "BOTH") %>%
+    group_by(diagnosis) %>%
+    summarise(across(where(is.numeric), ~ mean(.x))) %>%
+    arrange(diagnosis) %>%
+    select(where(is.numeric)) %>%
+    map_df(~ diff(.x))) # COMP - ADHD
+
+e1 = hypothesis(m.alpha, "0 > -2*diagnosis1 - diagnosis2 + 
+                               2*diagnosis1:level1 + diagnosis2:level1", alpha = 0.025)
+e1$hypothesis
+
+# H4c: alpha2 ADHD != COMP
+t(df.des %>% 
+    filter(level == "alpha2" & diagnosis != "BOTH") %>%
+    group_by(diagnosis) %>%
+    summarise(across(where(is.numeric), ~ mean(.x))) %>%
+    arrange(diagnosis) %>%
+    select(where(is.numeric)) %>%
+    map_df(~ diff(.x))) # COMP - ADHD
+
+e2 = hypothesis(m.alpha, "0 > -(2*diagnosis1 + diagnosis2 + 
+                                2*diagnosis1:level1 + diagnosis2:level1)", alpha = 0.025)
+e2$hypothesis
+
+# Explore BOTH
+
+e3 = hypothesis(m.alpha, "0 < -(2*diagnosis2 + diagnosis1) + 
+                                2*diagnosis2:level1 + diagnosis1:level1", alpha = 0.025)
+e3$hypothesis
+
+e4 = hypothesis(m.alpha, "0 > -(2*diagnosis2 + diagnosis1 + 
+                                2*diagnosis2:level1 + diagnosis1:level1)", alpha = 0.025)
+e4$hypothesis
+
+
+
+# calculate effect sizes
+df.effect = post.draws %>%
+  mutate(across(starts_with("sd")|starts_with("sigma"), ~.^2)) %>%
+  mutate(
+    sumvar = sqrt(rowSums(select(., starts_with("sd")|starts_with("sigma")))),
+    h4c = (2*`b_diagnosis1` + `b_diagnosis2`) / sumvar
+  )
+
+kable(df.effect %>% select(starts_with("e")|starts_with("h")) %>%
+        pivot_longer(cols = everything(), values_to = "estimate") %>%
+        group_by(name) %>%
+        summarise(
+          ci.lo = lower_ci(estimate),
+          mean  = mean(estimate),
+          ci.hi = upper_ci(estimate),
+          interpret = interpret_cohens_d(mean)
+        ), digits = 3
+)
+
+
+```
+
+h4c ADHD vs. COMP: *estimate* = `r round(h4c$hypothesis$Estimate,2)` [`r round(h4c$hypothesis$CI.Lower,2)`, `r round(h4c$hypothesis$CI.Upper,2)`], *posterior probability* = `r round(h4c$hypothesis$Post.Prob*100,2)`%
+
+
+## Check the influence of outliers
+
+```{r aov_alpha}
+
+# rank transform the values
+df.upd = df.upd %>% ungroup() %>%
+  mutate(rvalue = rank(value))
+
+if (!file.exists(file.path(brms_dir, "aov_alpha.rds"))) {
+  aov = anovaBF(rvalue ~ diagnosis * level * change, data = df.upd)
+} else {
+  aov = readRDS(file.path(brms_dir, "aov_alpha.rds"))
+}
+
+kable(aov@bayesFactor %>% arrange(desc(bf)) %>%
+  select(bf) %>% mutate(bf.diff = abs(lead(bf)-bf),
+                        bf.int  = interpret_bf(bf.diff, log = T)), digits = 3)
+
+```
+
+# Plots for learning rate updates
+
+```{r plot_alpha, fig.height=8}
+
+# rain cloud plot
+df.upd %>%
+  ggplot(aes(1, value, fill = diagnosis, colour = diagnosis)) + #
+  geom_rain(rain.side = 'r',
+boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
+violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
+boxplot.args.pos = list(
+  position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
+),
+point.args = list(show.legend = FALSE, alpha = .5),
+violin.args.pos = list(
+  width = 0.6, position = position_nudge(x = 0.16)),
+point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
+  scale_fill_manual(values = col.grp) +
+  scale_color_manual(values = col.grp) +
+  facet_wrap(level ~ change, scales = "free") +
+  labs(title = "Learning rate updates", x = "", y = "") +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5), 
+        legend.direction = "horizontal", text = element_text(size = 15),
+        axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+# Exluding the outliers
+df.upd %>%
+  filter(value < 0.4) %>%
+  ggplot(aes(1, value, fill = diagnosis, colour = diagnosis)) + #
+  geom_rain(rain.side = 'r',
+boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
+violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
+boxplot.args.pos = list(
+  position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
+),
+point.args = list(show.legend = FALSE, alpha = .5),
+violin.args.pos = list(
+  width = 0.6, position = position_nudge(x = 0.16)),
+point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
+  scale_fill_manual(values = col.grp) +
+  scale_color_manual(values = col.grp) +
+  facet_wrap(level ~ change, scales = "free") +
+  labs(title = "Learning rate updates", x = "", y = "") +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5), 
+        legend.direction = "horizontal", text = element_text(size = 15),
+        axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+df.upd %>% filter(value >= 0.4) %>% group_by(diagnosis) %>% count()
+
+# including medication
+df.upd %>%   
+  merge(., df.hgf %>% select(subID, adhd.meds.bin)) %>%
+  mutate(diagnosis = if_else(diagnosis == "BOTH", "ADHD+ASD", diagnosis),
+         adhd.meds.bin = case_when(adhd.meds.bin == "TRUE" ~ "medicated", 
+                                   T ~ ""),
+         group = paste0(diagnosis, adhd.meds.bin)) %>%
+  ggplot(aes(diagnosis, value, fill = group, colour = group)) + #
+  geom_rain(rain.side = 'r',
+boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
+violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
+boxplot.args.pos = list(
+  position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
+),
+point.args = list(show.legend = FALSE, alpha = .5),
+violin.args.pos = list(
+  width = 0.6, position = position_nudge(x = 0.16)),
+point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
+  # scale_fill_manual(values = col.grp) +
+  # scale_color_manual(values = col.grp) +
+  facet_wrap(level ~ change, scales = "free") +
+  labs(title = "Learning rate updates", x = "", y = "") +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5), 
+        legend.direction = "horizontal", text = element_text(size = 15),
+        axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+
+```

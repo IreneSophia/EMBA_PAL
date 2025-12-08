@@ -12,8 +12,8 @@ This repository is a work in progress. The scripts are continuously augmented.
 
 There are no hypotheses regarding the comparison of adults with ADHD or ASD. Thus, we separate the analysis into two folders: 
 
-* `EMBA_PAL_ASD`
-* `EMDA_PAL_ADHD`
+* `EMBA_PAL-ASD`
+* `EMDA_PAL-ADHD`
 
 All scripts and functions that are used in both analyses are found in this main folder including scripts for the presentation of the paradigm and preprocessing of the data as well as anonymised data. Due to privacy issues, we only share preprocessed pupil size data. 
 

@@ -1,0 +1,773 @@
+---
+title: "S5: behavioural, DDM-based analysis with ggdmc"
+author: "I. S. Plank"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    number_sections: true
+fontsize: 10pt
+#geometry: margin=0.5in
+---
+  
+```{r settings, include=FALSE}
+
+knitr::opts_chunk$set(echo = T, warning = F, message = F, fig.align = 'center', fig.width = 7.4)
+ls.packages = c("knitr",# kable
+    "brms",             # Bayesian LMMs
+    "ggdmc",            # DDM
+    "tidyverse",        # tibble stuff
+    "sjPlot",           # tab_model
+    "ggpubr",           # ggarrange
+    "ggrain",           # geom_rain
+    "rstatix",          # anova
+    "easystats",        # correlation
+    "BayesFactor",      # anovaBF
+    "bayesplot",        # plots for posterior predictive checks
+    "bayestestR"        # equivalence_test
+)
+
+lapply(ls.packages, library, character.only=TRUE)
+
+# options for summarise
+options(dplyr.summarise.inform = FALSE)
+
+# set cores
+options(mc.cores = parallel::detectCores())
+
+# set options for brms
+options(brms.backend = "cmdstanr")
+
+# Setup caching of results
+ddm_dir = "./_ddm_models"
+if(!dir.exists(ddm_dir)) {
+  dir.create(ddm_dir)
+}
+brms_dir = "./_brms_models"
+if(!dir.exists(brms_dir)) {
+  dir.create(brms_dir)
+}
+
+# custom colour palette
+col.grp = c("#FFC107", "#004D40", "#1E88E5")
+col.cnd = c("#5D3A9B", "#E66100")
+
+# helper functions
+lower_ci = function(var) {
+  unname(quantile(var, probs = 0.025))
+}
+upper_ci = function(var) {
+  unname(quantile(var, probs = 0.975))
+}
+
+# graph settings 
+c_light = "#a9afb2"; c_light_highlight = "#8ea5b2"; c_mid = "#6b98b2" 
+c_mid_highlight = "#3585b2"; c_dark = "#0072b2"; c_dark_highlight = "#0058b2" 
+c_green = "#009E73"
+sz = 1
+a = 0.5
+
+```
+
+<style type="text/css">
+  .main-container {
+    max-width: 1100px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+</style>
+  
+# Introduction
+  
+This R Markdown script analyses data from the PAL (probabilistic associative learning) task of the EMBA project using a drift diffusion model implemented in ggdmc. 
+
+## Some general settings
+
+```{r set}
+
+# number of simulations
+nsim = 250
+
+# set number of iterations and warmup for models
+iter = 3000
+warm = 1000
+
+# set the seed
+set.seed(2468)
+
+```
+
+## Package versions
+
+The following packages are used in this RMarkdown file: 
+  
+```{r lib_versions, echo=F}
+
+print(R.Version()$version.string)
+
+for (package in ls.packages) {
+  print(sprintf("%s version %s", package, packageVersion(package)))
+}
+
+```
+
+# Model setup
+
+```{r prep, fig.height=4}
+
+# build the model
+model = BuildModel(
+  p.map     = list(a = "1", v = "P", z = "1", d = "1", sz = "1", sv = "1",
+                   t0 = "1", st0 = "1"),
+  match.map = list(M = list(s1 = "r1", s2 = "r2")),
+  factors   = list(S = c("s1", "s2"), P = c("pre", "vol", "post")),
+  constants = c(st0 = 0, d = 0, sz = 0, sv = 0),
+  responses = c("r1", "r2"),
+  type      = "rd")
+npar = length(GetPNames(model))
+nop = 3   # number of phases
+
+# determine the priors
+pop.mean  = c(a = 2.0, v.pre = 2.5, v.vol = 2.0, v.post = 2.0, z = 0.5, t0 = 0.3)
+pop.scale = c(a = 0.5, v.pre = 0.5, v.vol = 0.5, v.post = 0.5, z = 0.1, t0 = 0.05)
+pop.lower = c(0, rep(-5, nop), rep(0, npar-1-nop))
+pop.upper = c(5, rep( 7, nop), rep(1, npar-1-nop))
+
+p.prior = BuildPrior(
+  dists = rep("tnorm", npar),
+  p1    = pop.mean,
+  p2    = pop.scale*5,
+  lower = pop.lower,
+  upper = pop.upper)
+mu.prior = p.prior
+plot(p.prior)
+
+sigma.prior = BuildPrior(
+  dists = rep("beta", npar),
+  p1    = rep(1, npar),
+  p2    = rep(1, npar),
+  upper = rep(2, npar))
+
+names(sigma.prior) = GetPNames(model)
+
+# collect the priors for the hierarchical model
+priors = list(pprior = p.prior, location = mu.prior, scale = sigma.prior)
+
+```
+# Parameter recovery
+
+```{r rec}
+
+if (!file.exists(file.path(ddm_dir, "fit_rec.RData"))) {
+  
+  # setup for the simulation
+  not = 336 # trials per subject
+  nos = 22  # subjects per group
+  npt = 72  # min trials per phase
+  
+  # set some narrower priors for the data creation
+  pop.prior = BuildPrior(
+    dists = rep("tnorm", npar),
+    p1    = pop.mean,
+    p2    = pop.scale,
+    lower = pop.lower,
+    upper = pop.upper)
+  
+  # simulate the data
+  sim.dat = simulate(model, prior = pop.prior, nsim = npt, nsub = nos)
+  dmi.rec = BuildDMI(sim.dat, model)
+  
+  fit.rec0 = StartNewsamples(data = dmi.rec, prior = priors)
+  
+  fit.rec = run(fit.rec0, thin = 16, nmc = 1000)
+
+  save(fit.rec, sim.dat, dmi.rec, file = file.path(ddm_dir, "fit_rec.RData"))
+} else {
+  load(file.path(ddm_dir, "fit_rec.RData"))
+}
+
+```
+
+```{r rec2, fig.show='hide'}
+
+# create some plots to check the model
+p1 = plot(fit.rec, hyper = TRUE) + theme_bw() + theme(legend.position = "none")
+p2 = plot(fit.rec, hyper = TRUE, pll = FALSE) + theme_bw() + theme(legend.position = "none")
+p3 = plot(fit.rec) + theme_bw() + theme(legend.position = "none")
+p4 = plot(fit.rec, hyper = TRUE, pll = FALSE, den = TRUE) + theme_bw() + theme(legend.position = "none")
+
+```
+
+```{r rec3, fig.height=28}
+
+# now plot them all together
+ggarrange(p1, p2, p3, p4, ncol = 1, heights = c(0.25, 0.75, 1.2, 0.75))
+
+# check the rhats
+rhats = hgelman(fit.rec, verbose = TRUE)
+
+# compare estimates and real values
+ps    = attr(sim.dat, "parameters")
+hest1 = summary(fit.rec, hyper = T, type = 1, recovery = T, ps = pop.mean)
+hest2 = summary(fit.rec, hyper = T, type = 2, recovery = T, ps = pop.scale)
+round(hest1, 2)
+round(hest2, 2)
+
+summary(fit.rec, recovery = T, ps = ps)
+
+```
+
+All looks good! Thus, we can move on to fitting the actual data. 
+
+# Hierarchical model
+
+We compute a hierarchical model separately for our three groups. 
+
+```{r hddm}
+
+# check if it all already exists
+if (!file.exists(file.path(ddm_dir, "fit_hddm.RData"))) {
+  
+  # load in the data
+  df = read_csv("../data/PAL-ADHD_data.csv", show_col_types = F) %>%
+    # filter out super long and super fast reactions
+    filter(rt > 100 & rt < 1500) %>%
+    # add all the trial information
+    merge(., read_csv("../data/PAL_scheme.csv", show_col_types = F)) %>%
+    mutate(
+      R = if_else((acc & emo == "positive") | (!acc & emo == "negative"), 
+                  "r1", "r2"),
+      P = case_match(phase, "prevolatile" ~ "pre", "volatile" ~ "vol", "postvolatile" ~ "post"),
+      S = if_else(emo == "positive", "s1", "s2"),
+      s = as.factor(subID),
+      RT = rt/1000
+    ) %>% select(diagnosis, adhd.meds.bin, s, S, P, R, RT)
+  
+  # initialise output list and dataframe
+  m       = list()
+  df.part = data.frame()
+  
+  groups = unique(df$diagnosis)
+  
+  for (group in groups) {
+    
+    if (!file.exists(file.path(ddm_dir, sprintf("m_%s.rds", group)))) {
+      # select part of the data
+      df.grp = df %>% filter(diagnosis == group) %>% 
+        select(-diagnosis) %>% droplevels()
+      
+      # create the data model instance 
+      dmi = BuildDMI(df.grp, model)
+      
+      # do this until rhats are okay
+      rhat  = 5
+      count = 0
+      
+      while (rhat >= 1.1) {
+        
+        # increase counter and thinning
+        count = count + 1
+        print(sprintf("%d, %d: %s", count, thin, group))
+        
+        # start sampling
+        fit0 = StartNewsamples(data = dmi, prior = priors)
+        
+        # run more to get it to be stable
+        fit = run(fit0, thin = 32, nmc = 1000) # ~33min
+  
+        # check the rhats
+        rhats = hgelman(fit, verbose = TRUE)
+        rhat  = max(rhats)# if rhats are fine, then save the fit
+        
+      }
+      
+    } else {
+      # if it already exists, just load the fit
+      fit = readRDS(file.path(ddm_dir, sprintf("m_%s.rds", group)))
+    }
+    
+    # if rhats are fine, then save the "ultimate" fit
+    saveRDS(fit, file.path(ddm_dir, sprintf("m_%s.rds", group)))
+    
+    # get the output
+    summary(fit, hyper = T, hci = T) # location and scale for hypers
+    part = summary(fit, hyper = F)   # participant parameters
+    df.part = rbind(df.part, 
+                    as.data.frame(part) %>% rownames_to_column(var = "s") %>% filter(s != "Mean"))
+    
+    # add to list
+    m[[group]] = fit
+    
+  }
+  
+  save(m, df, df.part, 
+       file = file.path(ddm_dir, "fit_hddm.RData"))
+  
+} else {
+  load(file.path(ddm_dir, "fit_hddm.RData"))
+}
+
+
+```
+
+```{r check_hddms, fig.show='hide'}
+
+p = list()
+for (i in 1:length(m)) {
+  # create some plots to check the model
+  p1 = plot(fit.rec, hyper = TRUE) + theme_bw() + theme(legend.position = "none")
+  p2 = plot(fit.rec, hyper = TRUE, pll = FALSE) + theme_bw() + theme(legend.position = "none")
+  p3 = plot(fit.rec) + theme_bw() + theme(legend.position = "none")
+  p4 = plot(fit.rec, hyper = TRUE, pll = FALSE, den = TRUE) + theme_bw() + theme(legend.position = "none")
+  p[[i]]  = ggarrange(p1, p2, p3, p4, ncol = 1, heights = c(0.25, 0.75, 1.2, 0.75))
+}
+
+```
+
+```{r check_hddms2, fig.height=28}
+
+annotate_figure(p[[1]], 
+                top = text_grob(sprintf("Model checks: %s", names(m)[1]), 
+                                face = "bold", size = 14))
+
+annotate_figure(p[[2]], 
+                top = text_grob(sprintf("Model checks: %s", names(m)[2]), 
+                                face = "bold", size = 14))
+
+annotate_figure(p[[3]], 
+                top = text_grob(sprintf("Model checks: %s", names(m)[3]), 
+                                face = "bold", size = 14))
+
+```
+
+# Analysis of drift rate
+
+## Model setup
+
+```{r setup_brms}
+
+# add diagnosis 
+df.part = merge(df.part, df %>% select(s, diagnosis, adhd.meds.bin) %>% distinct())
+
+# convert to long format for drift rates
+df.lng = df.part %>%
+  pivot_longer(cols = starts_with("v."), values_to = "v") %>%
+  mutate(
+    phase = case_match(name, 
+                       "v.pre"  ~ "prevolatile",
+                       "v.vol"  ~ "volatile",
+                       "v.post" ~ "postvolatile"),
+    phase = factor(phase, levels = c("prevolatile", "volatile", "postvolatile"))
+  ) %>%
+  mutate_if(is.character, as.factor)
+
+# set and print the contrasts
+contrasts(df.lng$diagnosis) = contr.sum(3)
+contrasts(df.lng$diagnosis)
+contrasts(df.lng$phase) = contr.sum(3)
+contrasts(df.lng$phase)
+
+# set the formula
+f.v = brms::bf(v ~ diagnosis * phase + (1|s))
+
+# set weakly informative priors
+priors = c(
+  prior(normal(2, 1.50),  class = Intercept),
+  prior(normal(0, 0.50),  class = sigma),
+  prior(normal(0, 0.50),  class = sd),
+  prior(normal(0, 0.50),  class = b)
+)
+
+```
+
+## Posterior predictive checks
+
+As the next step, we fit the model, check whether there are divergence or rhat issues, and then check whether the chains have converged.
+
+```{r postpc_v_1, fig.height=6, message=T}
+
+# fit the final model
+m.v = brm(f.v, seed = 1234,
+            df.lng, prior = priors,
+            iter = iter, warmup = warm,
+            backend = "cmdstanr", threads = threading(2),
+            file = file.path(brms_dir, "m_ddm_v"),
+            save_pars = save_pars(all = TRUE)
+            )
+rstan::check_hmc_diagnostics(m.v$fit)
+
+# check that rhats are below 1.01
+sum(brms::rhat(m.v) >= 1.01, na.rm = T)
+
+# check the trace plots
+post.draws = as_draws_df(m.v)
+mcmc_trace(post.draws, regex_pars = "^b_",
+           facet_args = list(ncol = 3)) +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3))
+
+```
+This model has no pathological behaviour with E-BFMI, no divergent sample and no rhats that are higher or equal to 1.01. Therefore, we go ahead and perform our posterior predictive checks. 
+
+```{r postpc_v_2, fig.height=6}
+
+# get posterior predictions
+post.pred = posterior_predict(m.v, ndraws = nsim)
+
+# check the fit of the predicted data compared to the real data
+p1 = pp_check(m.v, ndraws = nsim) + 
+  theme_bw() + theme(legend.position = "none")
+
+# distributions of means compared to the real values per group
+p2 = ppc_stat_grouped(df.lng$v, post.pred, df.lng$diagnosis) + 
+  theme_bw() + theme(legend.position = "none")
+
+p3 = ppc_stat_grouped(df.lng$v, post.pred, df.lng$phase) + 
+  theme_bw() + theme(legend.position = "none")
+
+p = ggarrange(p1, p2, p3,
+          ncol = 1, labels = "AUTO")
+annotate_figure(p, top = text_grob("Posterior predictive checks", 
+                                   face = "bold", size = 14))
+
+```
+
+## Inferences
+
+Now that we are convinced that we can trust our model, we have a look at its estimate and use the hypothesis function to assess our hypotheses and perform explorative tests. 
+
+```{r inf_v, fig.height=6}
+
+# print a summary
+summary(m.v)
+
+# get the estimates and compute group comparisons
+df.m.v = post.draws %>% 
+  select(starts_with("b_")) %>%
+  mutate(
+    ADHD   = b_Intercept + b_diagnosis1,
+    BOTH   = b_Intercept + b_diagnosis2,
+    COMP   = b_Intercept - b_diagnosis1 - b_diagnosis2,
+    b_COMP = - b_diagnosis1 - b_diagnosis2,
+    b_postvolatile = - b_phase1 - b_phase2,
+    `e1_ADHDvCOMP` = ADHD - COMP,
+    `e2_BOTHvCOMP` = BOTH - COMP,
+    `e3_ADHDvBOTH` = ADHD - BOTH,
+    `e4_VOLvSTBL`  = (b_Intercept + b_phase2) - ((b_Intercept + b_phase1) + (b_Intercept + b_postvolatile))/2,
+    `e5_diagVOLvSTBL` = -2.25*(`b_diagnosis1:phase2` + `b_diagnosis2:phase2`)
+  )
+
+# plot the posterior distributions
+df.m.v %>%
+  select(starts_with("b_")) %>%
+  pivot_longer(cols = starts_with("b_"), names_to = "coef", values_to = "estimate") %>%
+  subset(!startsWith(coef, "b_Int")) %>%
+  mutate(
+    coef = substr(coef, 3, nchar(coef)),
+    coef = str_replace_all(coef, ":", " x "),
+    coef = str_replace_all(coef, "diagnosis1", "ADHD"),
+    coef = str_replace_all(coef, "diagnosis2", "BOTH"),
+    coef = str_replace_all(coef, "phase1", "prevolatile"),
+    coef = str_replace_all(coef, "phase2", "volatile"),
+    coef = fct_reorder(coef, desc(estimate))
+  ) %>% 
+  group_by(coef) %>%
+  mutate(
+    cred = case_when(
+      (mean(estimate) < 0 & quantile(estimate, probs = 0.975) < 0) |
+        (mean(estimate) > 0 & quantile(estimate, probs = 0.025) > 0) ~ "credible",
+      T ~ "not credible"
+    )
+  ) %>% ungroup() %>%
+  ggplot(aes(x = estimate, y = coef, fill = cred)) +
+  geom_vline(xintercept = 0, linetype = 'dashed') +
+  ggdist::stat_halfeye(alpha = 0.7) + ylab(NULL) + theme_bw() +
+  scale_fill_manual(values = c(c_dark, c_light)) + theme(legend.position = "none")
+
+# get the design matrix to figure out how to set the contrasts
+df.des = cbind(df.lng %>% select(diagnosis, phase), 
+               model.matrix(~ diagnosis * phase, data = df.lng)) %>%
+  ungroup() %>% distinct()
+
+# COMP > ADHD
+e1 = hypothesis(m.v, "0 > 2*diagnosis1 + diagnosis2", alpha = 0.025)
+e1$hypothesis
+
+# COMP > BOTH
+e2  = hypothesis(m.v, "0 > diagnosis1 + 2*diagnosis2", alpha = 0.025)
+e2$hypothesis
+
+# ADHD < BOTH
+e3  = hypothesis(m.v, "diagnosis1 < diagnosis2", alpha = 0.025)
+e3$hypothesis
+
+# volatile versus stable phases
+e4  = hypothesis(m.v, "1.5*phase2 > 0", alpha = 0.025)   # volatile - mean(prevolatile, postvolatile)
+e4
+
+# differences in volatility effect depending on ADHD diagnosis
+e5 = hypothesis(m.v, "-2.25*(diagnosis1:phase2 + diagnosis2:phase2) > 0") # COMP(vol-stable) - mean(ADHD(vol-stable), BOTH(vol-stable))
+e5
+
+# equivalence
+equivalence_test(df.m.v %>% select(starts_with("e")), 
+                 range = rope_range(m.v))
+
+# calculate effect sizes
+df.effect = post.draws %>%
+  mutate(across(starts_with("sd")|starts_with("sigma"), ~.^2)) %>%
+  mutate(
+    sumvar = sqrt(rowSums(select(., starts_with("sd")|starts_with("sigma")))),
+    e1 = -(2*`b_diagnosis1` + `b_diagnosis2`) / sumvar,
+    e2 = -(`b_diagnosis1` + 2*`b_diagnosis2`) / sumvar,
+    e3 = (-`b_diagnosis1` + `b_diagnosis2`) / sumvar,
+    e4 = 1.5*b_phase2 / sumvar,
+    e5 = -2.25*(`b_diagnosis1:phase2` + `b_diagnosis2:phase2`) / sumvar
+  )
+
+kable(df.effect %>% select(starts_with("e")|starts_with("h")) %>%
+        pivot_longer(cols = everything(), values_to = "estimate") %>%
+        group_by(name) %>%
+        summarise(
+          ci.lo = lower_ci(estimate),
+          mean  = mean(estimate),
+          ci.hi = upper_ci(estimate),
+          interpret = interpret_cohens_d(mean)
+        ), digits = 3
+)
+
+```
+
+## Check influence of outlier
+
+```{r postpc_v2_1, fig.height=6, message=T}
+
+df.lng = df.lng %>% 
+  mutate(
+    v.clean = if_else(v > 6, NA, v)
+  )
+
+# fit the final model
+m.v2 = brm(v.clean ~ diagnosis * phase + (1 | s), 
+           seed = 1234, prior = priors, 
+           data = df.lng %>% drop_na(),
+           iter = iter, warmup = warm,
+           backend = "cmdstanr", threads = threading(2),
+           file = file.path(brms_dir, "m_ddm_v2"),
+           save_pars = save_pars(all = TRUE)
+           )
+
+tab_model(m.v, m.v2)
+
+# COMP > ADHD
+e1 = hypothesis(m.v2, "0 > 2*diagnosis1 + diagnosis2", alpha = 0.025)
+e1$hypothesis
+
+# COMP > BOTH
+e2  = hypothesis(m.v2, "0 > diagnosis1 + 2*diagnosis2", alpha = 0.025)
+e2$hypothesis
+
+# ADHD < BOTH
+e3  = hypothesis(m.v2, "diagnosis1 < diagnosis2", alpha = 0.025)
+e3$hypothesis
+
+```
+
+
+# Explore influence of medication on drift rate
+
+## Model setup
+
+```{r model_med}
+
+# combine diagnosis and medication
+df.lng.sel = df.lng %>%
+  filter(diagnosis != "COMP") %>% droplevels(except = "phase")
+
+# set the contrasts
+contrasts(df.lng.sel$phase)
+contrasts(df.lng.sel$adhd.meds.bin) = contr.sum(2)[c(2,1)]
+contrasts(df.lng.sel$adhd.meds.bin)
+
+# update formula
+f.v = brms::bf(v ~ adhd.meds.bin * phase + (1|s))
+
+```
+
+## Posterior predictive checks
+
+As the next step, we fit the model, check whether there are divergence or rhat issues, and then check whether the chains have converged.
+
+```{r postpc_v3_1, fig.height=4, message=T}
+
+# fit the group model
+m.v3 = brm(f.v, seed = 4664,
+            df.lng.sel, prior = priors,
+            iter = iter, warmup = warm,
+            backend = "cmdstanr", threads = threading(2),
+            file = file.path(brms_dir, "m_ddm_v3"),
+            save_pars = save_pars(all = TRUE)
+            )
+rstan::check_hmc_diagnostics(m.v3$fit)
+
+# check that rhats are below 1.01
+sum(brms::rhat(m.v3) >= 1.01, na.rm = T)
+
+# check the trace plots
+post.draws = as_draws_df(m.v3)
+mcmc_trace(post.draws, regex_pars = "^b_",
+           facet_args = list(ncol = 3)) +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3))
+
+```
+This model has no pathological behaviour with E-BFMI, no divergent sample and no rhats that are higher or equal to 1.01. Therefore, we go ahead and perform our posterior predictive checks. 
+
+```{r postpc_v3_2, fig.height=6}
+
+# get posterior predictions
+post.pred = posterior_predict(m.v3, ndraws = nsim)
+
+# check the fit of the predicted data compared to the real data
+p1 = pp_check(m.v3, ndraws = nsim) + 
+  theme_bw() + theme(legend.position = "none")
+
+# distributions of means compared to the real values per group
+p2 = ppc_stat_grouped(df.lng.sel$v, post.pred, df.lng.sel$adhd.meds.bin) + 
+  theme_bw() + theme(legend.position = "none")
+
+p3 = ppc_stat_grouped(df.lng.sel$v, post.pred, df.lng.sel$phase) + 
+  theme_bw() + theme(legend.position = "none")
+
+p = ggarrange(p1, p2, p3, #heights = c(1, 2, 1),
+          ncol = 1, labels = "AUTO")
+annotate_figure(p, top = text_grob("Posterior predictive checks", 
+                                   face = "bold", size = 14))
+
+```
+
+## Inferences
+
+Now that we are convinced that we can trust our model, we have a look at its estimate and use the hypothesis function to assess our hypotheses and perform explorative tests. 
+
+```{r inf_v3, fig.height=6}
+
+# print a summary
+summary(m.v3)
+
+# get the estimates and plot the posterior distributions
+post.draws %>% 
+  select(starts_with("b_"), -b_Intercept) %>%
+  pivot_longer(cols = everything(), names_to = "coef", values_to = "estimate") %>%
+  mutate(
+    coef = fct_reorder(coef, desc(estimate))
+  ) %>% 
+  group_by(coef) %>%
+  mutate(
+    cred = case_when(
+      (mean(estimate) < 0 & quantile(estimate, probs = 0.975) < 0) |
+        (mean(estimate) > 0 & quantile(estimate, probs = 0.025) > 0) ~ "credible",
+      T ~ "not credible"
+    )
+  ) %>% ungroup() %>%
+  ggplot(aes(x = estimate, y = coef, fill = cred)) +
+  geom_vline(xintercept = 0, linetype = 'dashed') +
+  ggdist::stat_halfeye(alpha = 0.7) + ylab(NULL) + theme_bw() +
+  scale_fill_manual(values =  c(c_dark, "not credible" = c_light)) + theme(legend.position = "none")
+
+```
+
+# Plots
+
+```{r plot_DDM, fig.height=4}
+
+# rain cloud plot
+p = df.lng %>%
+  mutate(
+    diagnosis = if_else(diagnosis == "BOTH", "ADHD+ASD", diagnosis)
+  ) %>%
+  ggplot(aes(phase, v, fill = diagnosis, colour = diagnosis)) + #
+  geom_rain(rain.side = 'r',
+boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
+violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
+boxplot.args.pos = list(
+  position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
+),
+point.args = list(show.legend = FALSE, alpha = .5),
+violin.args.pos = list(
+  width = 0.6, position = position_nudge(x = 0.16)),
+point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
+  scale_fill_manual(values = col.grp) +
+  scale_color_manual(values = col.grp) +
+  labs(x = "", y = "arbitrary unit") +
+  theme_bw() + 
+  theme(legend.position.inside = c(0.2, 0.8),
+        legend.position = "inside", plot.title = element_text(hjust = 0.5), 
+        legend.direction = "horizontal", text = element_text(size = 15),
+        legend.title = element_blank())
+
+annotate_figure(p, top = text_grob("Participant-specific drift rates", 
+                                   face = "bold", size = 14))
+
+ggsave(filename = file.path("plots", "FigDDM.svg"), 
+       units = "cm", width = 27, height = 9)
+
+# include medication into the plot
+df.lng %>%
+  mutate(
+    diagnosis = if_else(diagnosis == "BOTH", "ADHD+ASD", diagnosis)
+  ) %>%
+  ggplot(aes(diagnosis, v, fill = adhd.meds.bin, colour = adhd.meds.bin)) + #
+  geom_rain(rain.side = 'r',
+boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
+violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
+boxplot.args.pos = list(
+  position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
+),
+point.args = list(show.legend = FALSE, alpha = .5),
+violin.args.pos = list(
+  width = 0.6, position = position_nudge(x = 0.16)),
+point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
+  scale_fill_manual(values = col.cnd) +
+  scale_color_manual(values = col.cnd) +
+  labs(x = "", y = "arbitrary unit") +
+  facet_wrap(. ~ phase) + 
+  theme_bw() + 
+  theme(legend.position.inside = c(0.2, 0.8),
+        legend.position = "inside", plot.title = element_text(hjust = 0.5), 
+        legend.direction = "horizontal", text = element_text(size = 15),
+        legend.title = element_blank())
+
+# other parameters
+df.part %>% select(!starts_with("v")) %>%
+  pivot_longer(cols = where(is.numeric)) %>%
+  mutate(
+    name = factor(case_match(name,
+                           "a" ~ "boundary separation",
+                           "z" ~ "starting point",
+                           "t0" ~ "non-decision time"
+                           ))
+  ) %>%
+  ggplot(aes(1, value, fill = diagnosis, colour = diagnosis)) + #
+  geom_rain(rain.side = 'r',
+boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
+violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
+boxplot.args.pos = list(
+  position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
+),
+point.args = list(show.legend = FALSE, alpha = .5),
+violin.args.pos = list(
+  width = 0.6, position = position_nudge(x = 0.16)),
+point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
+  scale_fill_manual(values = col.grp) +
+  scale_color_manual(values = col.grp) +
+  labs(title = "Other DDM parameters", x = "", y = "") +
+  facet_wrap(. ~ name, scales = "free") + 
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5), 
+        legend.direction = "horizontal", text = element_text(size = 15),
+        axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+
+```
+

@@ -1,0 +1,394 @@
+---
+title: "Supplementary materials"
+subtitle: 'Bayesian Brain in ADHD: potential catecholaminergic
+pathway of volatility estimation'
+author: "Plank et al."
+date: "`r Sys.Date()`"
+output: 
+  pdf_document:
+    toc: true
+    number_sections: true
+    latex_engine: xelatex
+fontsize: 9pt
+geometry: margin=0.5in
+header-includes:
+# Add the S before section and table numbers
+- \renewcommand{\thesection}{S\arabic{section}}
+- \renewcommand{\thetable}{S\arabic{table}} 
+---
+
+```{r setup, include=FALSE}
+
+# clear global environment
+rm(list=ls())
+
+knitr::opts_chunk$set(echo = T, fig.pos = "center",
+                      fig.width = 7.5, fig.height = 4, 
+                      echo=FALSE, message=F, warning=F)
+
+ls.packages = c("knitr",# kable
+    "ggplot2",          # plots
+    "brms",             # Bayesian lmms
+    "designr",          # simLMM
+    "bridgesampling",   # bridge_sampler
+    "tidyverse",        # tibble stuff
+    "ggpubr",           # ggarrange
+    "ggrain",           # geom_rain
+    "bayesplot",        # plots for posterior predictive checks
+    "SBC",              # plots for checking computational faithfulness
+    "rstatix",          # anova
+    "BayesFactor", 
+    "effectsize",
+    "bayestestR"        # equivalence_test
+)
+
+lapply(ls.packages, library, character.only=TRUE)
+
+# Setup caching of results
+brms_dir = "./_brms_models"
+
+# confidence interval functions
+lower_ci = function(var) {
+  unname(quantile(var, probs = 0.025))
+}
+upper_ci = function(var) {
+  unname(quantile(var, probs = 0.975))
+}
+
+# scale function for vector
+scale_this = function(x){
+  (x - mean(x, na.rm=TRUE)) / sd(x, na.rm=TRUE)
+}
+
+# graph settings 
+c_light = "#a9afb2"; c_light_highlight = "#8ea5b2"; c_mid = "#6b98b2" 
+c_mid_highlight = "#3585b2"; c_dark = "#0072b2"; c_dark_highlight = "#0058b2" 
+c_green = "#009E73"
+sz = 1
+a = 0.5
+
+# custom colour palette
+col.grp = c("#FFC107", "#004D40", "#1E88E5")
+col.cnd = c("#5D3A9B", "#E66100")
+
+# set the seed
+set.seed(2468)
+
+```
+
+<style type="text/css">
+  .main-container {
+    max-width: 1100px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+</style>
+
+# Package versions
+
+The following packages are used in this RMarkdown file: 
+  
+```{r lib_versions, echo=F}
+
+print(R.Version()$version.string)
+
+for (package in ls.packages) {
+  print(sprintf("%s version %s", package, packageVersion(package)))
+}
+
+```
+
+# Probabilistic associative learning task
+
+## Development of associations across task
+
+```{r eval1, fig.height=6}
+
+# load the trial order
+df.trl = read_csv('../data/PAL_scheme.csv', show_col_types = F) %>%
+  mutate(
+    association = ut*100, 
+    prob_HP = prob_HP*100
+  )
+
+# create rectangles to colour the phases: prevolatile, volatile and postvolatile
+rects = data.frame(xstart = c(-Inf, 72, 264), 
+                   xend = c(72, 264, Inf), 
+                   col = c("a", "b", "c"))
+  
+ggplot() +
+  geom_rect(data = rects, aes(xmin = xstart, xmax = xend, 
+                              ymin = -Inf, ymax = Inf, 
+                              fill = col), alpha = 0.4) +
+  scale_fill_manual(values=c(c_mid_highlight, c_green, c_dark_highlight), 
+                    guide = "none") +
+  geom_jitter(data = df.trl, 
+              aes(x = trl, y = association, shape = expected),
+              colour = "black", alpha = 0.8, size = 1, width = 0, height = 4) +
+  geom_line(data = df.trl, 
+            aes(x = trl, y = prob_HP),
+            colour = "black") +
+  scale_shape_manual(values = c(8, 1, 3)) +
+  theme_bw() + 
+  scale_y_continuous(breaks=c(16.7, 83.3)) +
+  labs(x = "trial", y = "percent", 
+       title = "High tone > positive, low tone > negative emotion") +
+  annotate("text", x = 36, y = 125, label= "prevolatile", size = 4) +
+  annotate("text", x = 168, y = 125, label= "volatile", size = 4) +
+  annotate("text", x = 301, y = 125, label= "postvolatile", size = 4) +
+  theme(legend.position = c(0.9, 0.5), legend.title = element_blank(), 
+        legend.background = element_rect(fill = alpha("white", 0)),
+        legend.key = element_rect(fill = alpha("white", 0)),
+        plot.title = element_text(hjust = 0.5), text = element_text(size = 12))
+
+```
+
+## Comparison of LME across groups
+
+```{r eval2}
+
+aov.lme = readRDS(file.path(brms_dir, "aov_lme.rds"))
+aov.lme@bayesFactor
+
+```
+
+
+# Participant-specific HGF and DDM parameters
+
+## H3c: second level tonic volatility
+
+```{r hgf1}
+
+m = readRDS(file.path(brms_dir, "m_hgf_om2.rds"))
+
+summary(m)
+
+```
+
+## Predicting ADHD diagnosis with HGF parameters
+
+```{r hgf2}
+
+m = readRDS(file.path(brms_dir, "m_hgf_bern_adhd.rds"))
+
+summary(m)
+
+```
+
+## Predicting ADHD medication with HGF parameters
+
+```{r hgf3}
+
+m = readRDS(file.path(brms_dir, "m_hgf_bern_meds.rds"))
+
+summary(m)
+
+```
+
+## Learning rate update
+
+```{r hgf4}
+
+m = readRDS(file.path(brms_dir, "m_hgf_alpha.rds"))
+
+summary(m)
+
+```
+
+```{r hgf4_plot, fig.height=6}
+
+m$data %>%
+  ggplot(aes(1, value, fill = diagnosis, colour = diagnosis)) + #
+  geom_rain(rain.side = 'r',
+boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
+violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
+boxplot.args.pos = list(
+  position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
+),
+point.args = list(show.legend = FALSE, alpha = .5),
+violin.args.pos = list(
+  width = 0.6, position = position_nudge(x = 0.16)),
+point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
+  scale_fill_manual(values = col.grp) +
+  scale_color_manual(values = col.grp) +
+  facet_wrap(level ~ change, scales = "free") +
+  labs(title = "Learning rate updates", x = "", y = "") +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5), 
+        legend.direction = "horizontal", text = element_text(size = 15),
+        axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+```
+
+## Group differences in drift rate
+
+```{r ddm}
+
+m = readRDS(file.path(brms_dir, "m_ddm_v.rds"))
+
+summary(m)
+
+```
+
+## Influence of medication on drift rate
+
+```{r ddm2}
+
+m = readRDS(file.path(brms_dir, "m_ddm_v3.rds"))
+
+summary(m)
+
+```
+
+# Conventional analyses of responses and pupil sizes
+
+## Response time variance
+
+```{r var}
+
+m = readRDS(file.path(brms_dir, "m_var.rds"))
+
+summary(m)
+
+```
+
+```{r plot_var, fig.height=4}
+
+# plot transition effects specifically
+m$data %>% 
+  group_by(diagnosis, phase) %>%
+  summarise(
+    var.mn = mean(rt.var),
+    var.se = sd(rt.var) / sqrt(n())
+  ) %>%
+  ggplot(aes(y = var.mn, x = phase, 
+             group = diagnosis, colour = diagnosis)) +
+  geom_line(position = position_dodge(0.4), linewidth = 1) +
+  geom_errorbar(aes(ymin = var.mn - var.se, 
+                    ymax = var.mn + var.se), linewidth = 1, width = 0.5, 
+                position = position_dodge(0.4)) + 
+  geom_point(position = position_dodge(0.4), size = 5) + 
+  labs (x = "phase", y = "rt SD (ms)") + 
+  scale_fill_manual(values = col.grp) +
+  scale_color_manual(values = col.grp) +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5))
+
+```
+
+## Response times
+
+```{r rt}
+
+m = readRDS(file.path(brms_dir, "m_pal.rds"))
+
+summary(m)
+
+```
+
+```{r plot_rt, fig.height=10}
+
+m$data %>%
+  ggplot(aes(diagnosis, rt.cor, fill = expected, colour = expected)) + #
+  geom_rain(rain.side = 'r',
+boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
+violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
+boxplot.args.pos = list(
+  position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
+),
+point.args = list(show.legend = FALSE, alpha = .5),
+violin.args.pos = list(
+  width = 0.6, position = position_nudge(x = 0.16)),
+point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
+  scale_fill_manual(values = col.cnd) +
+  scale_color_manual(values = col.cnd) +
+  #ylim(0, 1) +
+  labs(title = "Reaction times per subject", x = "", y = "rt (ms)") +
+  facet_wrap(difficulty ~ phase) +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5), 
+        legend.direction = "horizontal", text = element_text(size = 15))
+
+```
+
+## Pupil sizes
+
+```{r pup}
+
+m = readRDS(file.path(brms_dir, "m_pup.rds"))
+
+summary(m)
+
+```
+
+
+```{r plot_pup, fig.height=3}
+
+# rain cloud plot
+m$data %>%
+  group_by(subID, diagnosis, expected) %>%
+  summarise(
+    rel_pupil = mean(rel_pupil)
+  ) %>%
+  ggplot(aes(diagnosis, rel_pupil, fill = expected, colour = expected)) + #
+  geom_rain(rain.side = 'r',
+boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
+violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
+boxplot.args.pos = list(
+  position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
+),
+point.args = list(show.legend = FALSE, alpha = .5),
+violin.args.pos = list(
+  width = 0.6, position = position_nudge(x = 0.16)),
+point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
+  scale_fill_manual(values = col.cnd) +
+  scale_color_manual(values = col.cnd) +
+  labs(title = "", x = "", y = "pupil size change (mm)") +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_blank(),
+        legend.direction = "horizontal", text = element_text(size = 15), 
+        legend.title = element_blank())
+
+```
+
+
+## Accuracies
+
+```{r acc}
+
+aov.acc = readRDS(file.path(brms_dir, "aov_acc.rds"))
+
+aov.acc@denominator
+
+kable(aov.acc@bayesFactor %>% select(bf) %>% arrange(desc(bf)),
+      digits = 2)
+
+```
+
+
+```{r plot_acc, fig.height=10}
+
+# rain cloud plot including all factors
+
+aov.acc@data %>%
+  ggplot(aes(expected, acc, fill = diagnosis, colour = diagnosis)) + #
+  geom_rain(rain.side = 'r',
+boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
+violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
+boxplot.args.pos = list(
+  position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
+),
+point.args = list(show.legend = FALSE, alpha = .5),
+violin.args.pos = list(
+  width = 0.6, position = position_nudge(x = 0.16)),
+point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
+  scale_fill_manual(values = col.grp) +
+  scale_color_manual(values = col.grp) +
+  labs(title = "Accuracies per subject", x = "", y = "accuracy (%)") +
+  facet_wrap(phase ~ difficulty) +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5), 
+        legend.direction = "horizontal", text = element_text(size = 15))
+
+```
+

@@ -2,7 +2,9 @@
 /EMBA_HGF/RainCloud*
 /EMBA_HGF/VBA*
 /prepro/__pycache__
-/EMBA_PAL-ADHD/*
 /.DS_Store
 /EMBA_PAL-ASD/_brms_models/m_pal.rds
+/EMBA_PAL-ADHD/_brms_models/m_pal.rds
+/EMBA_PAL-ADHD/HGF_results/sim/model_identifiability.mat 
+/EMBA_PAL-ADHD/HGF_results/sim/recovery_analysis.mat
 *.DS_Store
