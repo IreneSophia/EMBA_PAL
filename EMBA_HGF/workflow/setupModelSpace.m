@@ -84,8 +84,9 @@ end
 
 
 %% Find free parameters
-% Note that it relies on the fact, that in the perception model, the
+% Note that it relies on the fact, that in the HGF perception model, the
 % variance for all parameters, but omegas, are set to zero or NaN!
+% For other models, this may have to be adjusted. 
 
 % Loop through the models
 for i = 1:size(ModelSpace,2)

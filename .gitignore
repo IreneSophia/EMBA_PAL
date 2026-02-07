@@ -3,6 +3,7 @@
 /EMBA_HGF/VBA*
 /prepro/__pycache__
 /.DS_Store
+/data/PAL-sub*
 /EMBA_PAL-ASD/_brms_models/m_pal.rds
 /EMBA_PAL-ADHD/_brms_models/m_pal.rds
 /EMBA_PAL-ADHD/HGF_results/sim/model_identifiability.mat 
