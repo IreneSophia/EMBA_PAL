@@ -97,10 +97,17 @@ for (package in ls.packages) {
 }
 
 ```
+# Methods: additional details 
 
-# Probabilistic associative learning task
+## Procedure
 
-## Development of associations across task
+Behavioural tasks were performed in a small, soundproof testing chamber with consistent lighting on a Lenovo Legion Pro 5 mounted in a laptop stand (resolution: 2560x1600 pixel; size: 344x215mm; refresh rate: 60Hz). Eye-tracking data was collected with a LiveTrack Lightning eye tracker (Cambridge RS, sampling rate 500Hz) using a headrest to ensure a stable viewing distance of 57cm. The eye tracker was individually calibrated before each task based on 9-points. 
+
+## Stimulus creation
+
+Stimuli were created using KDEF pictures of people portraying three expressions: emotionally neutral, fearful and happy (Lundqvist et al., 1998). Happy and fearful pictures were morphed with emotionally neutral pictures of the same person using WinMorph 3.01 to create videos of the person gradually and continually taking on an emotional expression. Independent samples of 21 and 25 participants rated the naturalness of videos of female-presenting and male-presenting faces, respectively (online surveys on SoSci, Leiner, 2019). We selected six identities based on these ratings (F02, F05, F09, M10, M11 and M13; naturalness of selected videos: range = 70.04-82.81; mean = 76.55). Of these videos, we extracted still images capturing 50%, 75% and 100% of the emotional expression to create hard, medium and easy stimuli, respectively. 
+
+## Development of associations across PAL task
 
 ```{r eval1, fig.height=6}
 
@@ -143,6 +150,10 @@ ggplot() +
 
 ```
 
+## Computational modelling of reaction times: Hierarchical Gaussian Filter
+
+To ensure model reliability and faithfulness, we followed the Bayesian workflow adaptation for computational modelling as proposed by Hess and colleagues (2025). This workflow includes the computation of empirical priors, in our case based on the publicly available data from Lawson et al. (2021) as well as our own pilot data, simulation-based evaluation of parameter recovery and model identifiability, posterior predictive checks and model comparison. 
+
 ## Comparison of LME across groups
 
 ```{r eval2}
@@ -152,6 +163,17 @@ aov.lme@bayesFactor
 
 ```
 
+## Analysis of extracted HGF parameters
+
+We analysed HGF parameters using a Bayesian linear model with a Gaussian distribution and included group as the population-level predictor. Additionally, we explored whether ADHD diagnosis or ADHD medication could be predicted using scaled HGF parameters by fitting two Bernoulli models. For these Bernoulli models, we did not distinguish between adults with ADHD alone and those with comorbid ASD. We used a lognormal Bayesian linear mixed model to assess the influence of alpha level (second, third level), change (prevolatile to volatile, volatile to postvolatile) and their interaction on learning rate updates. The model also includes participants (level and change slopes) on the group-level. 
+
+## Computational modelling of reaction times: Wiener Diffusion Model
+
+We used the ggdmc package to implement a Bayesian version of a hierarchical Wiener diffusion model (Lin & Strickland, 2020), since Bayesian versions of DDM are more robust to designs with fewer trials (Myers et al., 2022). We constructed three separate hierarchical DDMs, one for each group, as a single model for all groups did not converge. Each model included one drift rate per task phase (prevolatile, volatile, postvolatile) to assess differences between task phases with high and low environmental volatility. We assessed model reliability with simulation-based parameter recovery. Only models where all potential scale reduction factors assessing convergence of the Markov chains were smaller than 1.1 were included in the analysis (Gelman et al., 2003). To achieve convergence, we increased the thinning until stable models were obtained. Then, we extracted participant-specific DDM parameters and analysed the drift rates with a Bayesian linear mixed model with a Gaussian distribution (population-level predictors group, phase and their interaction; group-level intercept for participants). A similar model focusing on adults with ADHD, regardless of comorbid ASD, investigated the influence of medication on drift rates. 
+
+## Conventional analysis of reaction time variance, reaction times and error rates
+
+We included only reaction times on correct trials in the analysis of the reaction times and reaction time variances. Additionally, we excluded extreme reaction times defined by the interquartile method. Participants whose accuracy was below 66.67% were excluded from all analyses. Additionally, reaction time variance was only computed as standard deviation for conditions where at least two-thirds of the trials’ reaction times were included in the analysis. We used a shifted lognormal distribution to model correct reaction times with the model including group, expectancy, phase and difficulty on the population level. On the group level, we added trials (slope for group) and participants (slopes for expectancy, phase, difficulty and their interactions). We analysed reaction time variance with a lognormal model including the population-level predictors group, expectancy, phase and their interaction as well as participants with slopes for expectancy and phase on the group-level. We dropped the predictor difficulty due to poor posterior predictive fit, slightly deviating from the preregistration. Additionally, we used a Bayesian ANOVA on the rank transformed accuracies to explore differences. 
 
 # Participant-specific HGF and DDM parameters
 
