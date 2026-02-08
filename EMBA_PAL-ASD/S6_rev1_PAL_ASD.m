@@ -42,9 +42,11 @@ end
 addpath([dir_HGF filesep '/tapas-master']);
 tapas_init('hgf');
 
-% cd([dir_HGF filesep 'VBA-toolbox-master']); 
-% VBA_setup();
-% cd(dir_PAL)
+if isunix
+    cd([dir_HGF filesep 'VBA-toolbox-master']); 
+    VBA_setup();
+    cd(dir_PAL)
+end
 
 %% Add the relevant subfolders to the path
 
@@ -71,7 +73,6 @@ modSpaceNew = setupModelSpace(obsNamesDisp, prcNamesDisp, obsNamesList, prcNames
 % Add the HGF models to the model space
 [obsNamesDisp, prcNamesDisp, obsNamesList, prcNamesList] = modelNames_PAL_ASD();
 modSpaceHGF = setupModelSpace(obsNamesDisp, prcNamesDisp, obsNamesList, prcNamesList, false);
-modSpaceAll = [updateModSpace(modSpaceHGF, saveDir) modSpaceNew];
 
 % Load the participant data
 load('PAL-ASD_data.mat', 'data'); 
@@ -90,7 +91,7 @@ fitPilotData(modSpaceNew, nPilots, pilot, parallel, local_cores, revDir)
 % Accumulate the results. Necessary for some of the plotting. 
 accumulateForPlotting('pilots', modSpaceNew, revDir)
 
-%% Quick posterior predictive checks for the pilots
+%% Quick posterior predictive checks for the pilots [!MISSING]
 
 % Plot predicted differences between difficulty & expectedness [!HARDCODED!]
 plotAggLogRTsModel(modSpaceNew, 'pilots', revDir, false, true) % [!ADJUST]
@@ -112,11 +113,16 @@ plotEmpiricalPriors(modSpaceNew, 'pilots', revDir, []); % [!ADJUST]
 % Update the model space to use empirical priors
 modSpaceRobMean = updateModSpace(modSpaceNew, revDir);
 
+% Combine with updated HGF space
+modSpaceAll = [updateModSpace(modSpaceHGF, saveDir) modSpaceRobMean];
 
-%% Simulate the data [!ADJUST]
+%% Simulate the data 
 % Here, we assume that the inputs u are the same for everyone
 % We can also decide how verbose the output is supposed to be and the
 % number of maximum tries in case of instability
+% This fails for K1-SUR, so we drop this model here
+modSpaceAll = modSpaceAll([1:3,5]);
+modSpaceRobMean = modSpaceRobMean([1, 3]);
 verbose = false;
 maxRep  = 10;
 simModelsAppend(modSpaceRobMean, nSim, data(end).u, saveDir, revDir, verbose, maxRep);
@@ -127,18 +133,18 @@ simModelsAppend(modSpaceRobMean, nSim, data(end).u, saveDir, revDir, verbose, ma
 
 fitSimDataAppend(modSpaceAll, nSim, parallel, local_cores, saveDir, revDir);
 
-%% Recovery analysis (parameter recovery + model identifyability) [!ADJUST]
+%% Recovery analysis (parameter recovery + model identifyability) 
 
-checkParameterRecovery(modSpaceNew, nSim, revDir);
-plotParameterRecovery(modSpaceNew, revDir); % [!HARDCODED!]
+checkParameterRecovery(modSpaceRobMean, nSim, revDir);
+plotParameterRecovery(modSpaceRobMean, revDir); % [!HARDCODED!]  [!ADJUST]
 
-checkModelIdentifiability(nSim, modSpaceRobMeanAll, revDir); % [!MISSING]
-plotModelIdentifiability(modSpaceRobMeanAll, revDir);
+checkModelIdentifiability(nSim, modSpaceAll, revDir); % [!MISSING]
+plotModelIdentifiability(modSpaceAll, revDir);
 
 %% Fit the models on the data
 
 % Fit the models to the participant data
-fitData(modSpaceNew, data, parallel, local_cores, revDir)
+fitData(modSpaceRobMean, data, parallel, local_cores, revDir)
 
 % Accumulate the results. Necessary for some of the plotting. 
 accumulateForPlotting('main', modSpaceRobMean, revDir)
@@ -164,9 +170,9 @@ for m = 1:size(est,1)
 end
 
 % compare models 
-options.modelNames = txt(1:3);
+options.modelNames = txt;
 options.verbose    = false;
-[posterior, out]   = VBA_groupBMC(LME(1:3,:), options);
+[posterior, out]   = VBA_groupBMC(LME, options);
 
 % save the outcome and plots
 print([revDir filesep 'model_comparison'], '-dpng');
