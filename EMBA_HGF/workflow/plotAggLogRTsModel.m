@@ -1,4 +1,4 @@
-function [] = plotAggLogRTsModel(modSpace, subDir, saveDir, plotBox, plotLine)
+function [] = plotAggLogRTsModel(modSpace, subDir, saveDir, plotBox, plotLine, u)
 % Plot comparison of real data and predicted data for conditions
 %
 % !! CAUTION !!: This is HARDCODED for the models used in the EMBA project. 
@@ -15,6 +15,8 @@ function [] = plotAggLogRTsModel(modSpace, subDir, saveDir, plotBox, plotLine)
 %   plotBox             boolean             whether to create boxplots
 %
 %   plotLine            boolean             whether to create line graphs
+%
+%   u                   matrix              input for model
 %-----------------------------------------------------------------------------
 %
 % Copyright (C) 2024 Anna Yurova, Irene Sophia Plank, LMU University Hospital;
@@ -39,7 +41,7 @@ end
 
 %% Load condition indices
 
-% load stimulus order
+% load stimulus order > expectedness same in pilot and our data
 tbl = readtable("PAL_scheme.csv");
 coi = {'difficulty', 'expected'}; % conditions of interest
 
@@ -59,15 +61,16 @@ for m = 1:nModels
         count     = 1;
         for i = 1:nSubs
             for j = 1:length(opts)
-                % find the corrisponding indices with difficulty being in
-                % the u itself > different in Lawson and our study
+                % find the corrisponding indices with difficulty either in
+                % the u itself > different in Lawson and our study < or in
+                % the planned scheme for the models without difficulty
                 if strcmp(field{1}, 'difficulty')
                     if strcmp(opts{j}, 'easy')
-                        idx = find(res.est(m,i).u(:,2) == 0.1);
+                        idx = find(u(:,2) == 0.1);
                     elseif strcmp(opts{j}, 'medium')
-                        idx = find(res.est(m,i).u(:,2) == 0.3);
+                        idx = find(u(:,2) == 0.3);
                     elseif strcmp(opts{j}, 'difficult')
-                        idx = find(res.est(m,i).u(:,2) == 0.9);
+                        idx = find(u(:,2) == 0.9);
                     end
                 else
                     idx = find(strcmp(tbl.(field{1}), opts{j}));                    

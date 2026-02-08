@@ -42,7 +42,7 @@ end
 addpath([dir_HGF filesep '/tapas-master']);
 tapas_init('hgf');
 
-if isunix
+if ~ismac
     cd([dir_HGF filesep 'VBA-toolbox-master']); 
     VBA_setup();
     cd(dir_PAL)
@@ -59,13 +59,9 @@ addpath([dir_HGF filesep 'workflow']);
 
 % Get the observation and perception model names
 obsNamesDisp = "SUR";
-prcNamesDisp = ["RW", "K1", "HGF"];
-prcNamesList = ["tapas_rw_binary", "tapas_sutton_k1_binary", ...
-    "emba_hgf_binary_pu_tbt"];
+prcNamesDisp = ["RW", "HGF"];
+prcNamesList = ["tapas_rw_binary", "emba_hgf_binary_pu_tbt"];
 obsNamesList = "emba_logrt_linear_binary_SUR";
-% not working: tapas_softmax_binary, tapas_softmax, tapas_gaussian_obs
-% working, but predicting binary: tapas_unitsq_sgm
-% WORKING: tapas_rs_belief and surprise
 
 % Create a structure with the model space
 modSpaceNew = setupModelSpace(obsNamesDisp, prcNamesDisp, obsNamesList, prcNamesList, true);
@@ -94,7 +90,7 @@ accumulateForPlotting('pilots', modSpaceNew, revDir)
 %% Quick posterior predictive checks for the pilots [!MISSING]
 
 % Plot predicted differences between difficulty & expectedness [!HARDCODED!]
-plotAggLogRTsModel(modSpaceNew, 'pilots', revDir, false, true) % [!ADJUST]
+plotAggLogRTsModel(modSpaceNew, 'pilots', revDir, false, true, pilot.data(end).u) % [!ADJUSTED]
 
 % Plot regressors [!HARDCODED!]
 plotAverageRegressors(modSpaceNew, 'pilots', pilot.data, revDir); % [!ADJUST]
@@ -121,8 +117,6 @@ modSpaceAll = [updateModSpace(modSpaceHGF, saveDir) modSpaceRobMean];
 % We can also decide how verbose the output is supposed to be and the
 % number of maximum tries in case of instability
 % This fails for K1-SUR, so we drop this model here
-modSpaceAll = modSpaceAll([1:3,5]);
-modSpaceRobMean = modSpaceRobMean([1, 3]);
 verbose = false;
 maxRep  = 10;
 simModelsAppend(modSpaceRobMean, nSim, data(end).u, saveDir, revDir, verbose, maxRep);
@@ -138,7 +132,7 @@ fitSimDataAppend(modSpaceAll, nSim, parallel, local_cores, saveDir, revDir);
 checkParameterRecovery(modSpaceRobMean, nSim, revDir);
 plotParameterRecovery(modSpaceRobMean, revDir); % [!HARDCODED!]  [!ADJUST]
 
-checkModelIdentifiability(nSim, modSpaceAll, revDir); % [!MISSING]
+checkModelIdentifiability(nSim, modSpaceAll, revDir);
 plotModelIdentifiability(modSpaceAll, revDir);
 
 %% Fit the models on the data
