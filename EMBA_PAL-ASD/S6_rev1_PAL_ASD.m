@@ -107,9 +107,10 @@ plotEmpiricalPriors(modSpaceNew, 'pilots', revDir, []);
 modSpaceRobMean = updateModSpace(modSpaceNew, revDir);
 
 % Second version of the RW model with a wider prior
-% [!ADD]
-% modSpace = [modSpaceRobMean modSpaceNew];
-% modSpace(1).name = modSpace(1).name + "rob";
+modSpaceRobMean = [modSpaceRobMean modSpaceRobMean(1)];
+modSpaceRobMean(end).name = modSpaceRobMean(1).name + "wide";
+modSpaceRobMean(end).prc_config.logitalsa   = 1;
+modSpaceRobMean(end).prc_config.priorsas(2) = 1;
 
 % Combine with updated HGF space
 modSpaceAll = [updateModSpace(modSpaceHGF, saveDir) modSpaceRobMean];
@@ -133,14 +134,17 @@ fitSimDataAppend(modSpaceAll, nSim, parallel, local_cores, saveDir, revDir);
 checkParameterRecovery(modSpaceAll, nSim, revDir);
 plotParameterRecovery(modSpaceAll, revDir); % [!HARDCODED!]
 
-% Here, we see that the empirical priors are too narrow for the RW model.
-% We adjusted the width of the prior above to account for that and now
-% disregard the model with the narrow, empirical priors. 
-
+% now we check the model identifiability
 checkModelIdentifiability(nSim, modSpaceAll, revDir);
 plotModelIdentifiability(modSpaceAll, revDir);
 
 %% Fit the models on the data
+
+% Here, we see that the empirical priors are too narrow for the RW model.
+% We adjusted the width of the prior above to account for that and now
+% disregard the model with the narrow, empirical priors. 
+modSpaceSel = modSpaceAll([1,2,4,5]);
+modSpaceRobMean = modSpaceRobMean(2:3);
 
 % Fit the models to the participant data
 fitData(modSpaceRobMean, data, parallel, local_cores, revDir)
@@ -161,7 +165,7 @@ est = [hgf.res.est; new.res.est];
 LME = nan(size(est));
 txt = cell(size(est,1),1);
 for m = 1:size(est,1)
-    txt{m} = modSpaceAll(m).name;
+    txt{m} = modSpaceSel(m).name;
     for i = 1:size(est,2)
         LME(m,i) = est(m,i).optim.LME;
     end
