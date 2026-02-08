@@ -87,16 +87,13 @@ fitPilotData(modSpaceNew, nPilots, pilot, parallel, local_cores, revDir)
 % Accumulate the results. Necessary for some of the plotting. 
 accumulateForPlotting('pilots', modSpaceNew, revDir)
 
-%% Quick posterior predictive checks for the pilots [!MISSING]
+%% Quick posterior predictive checks for the pilots
 
 % Plot predicted differences between difficulty & expectedness [!HARDCODED!]
 plotAggLogRTsModel(modSpaceNew, 'pilots', revDir, false, true, pilot.data(end).u) % [!ADJUSTED]
 
-% Plot regressors [!HARDCODED!]
-plotAverageRegressors(modSpaceNew, 'pilots', pilot.data, revDir); % [!ADJUST]
-
 % Plot RTs with yhats [!HARDCODED!]
-plotLogRTsModel(modSpaceNew, 'pilots', revDir, 0, []);  % [!NEW]
+plotLogRTsModel(modSpaceNew, 'pilots', revDir, 0, []); 
 
 %% Empirical priors computation
 
@@ -104,10 +101,15 @@ plotLogRTsModel(modSpaceNew, 'pilots', revDir, 0, []);  % [!NEW]
 computeEmpiricalPriors(modSpaceNew, nPilots, 'pilots', revDir);
 
 % Plot empirical priors [!HARDCODED!]
-plotEmpiricalPriors(modSpaceNew, 'pilots', revDir, []); % [!ADJUST]
+plotEmpiricalPriors(modSpaceNew, 'pilots', revDir, []); 
 
-% Update the model space to use empirical priors
+% Update the model space to use empirical priors 
 modSpaceRobMean = updateModSpace(modSpaceNew, revDir);
+
+% Second version of the RW model with a wider prior
+% [!ADD]
+% modSpace = [modSpaceRobMean modSpaceNew];
+% modSpace(1).name = modSpace(1).name + "rob";
 
 % Combine with updated HGF space
 modSpaceAll = [updateModSpace(modSpaceHGF, saveDir) modSpaceRobMean];
@@ -128,8 +130,12 @@ fitSimDataAppend(modSpaceAll, nSim, parallel, local_cores, saveDir, revDir);
 
 %% Recovery analysis (parameter recovery + model identifyability) 
 
-checkParameterRecovery(modSpaceRobMean, nSim, revDir);
-plotParameterRecovery(modSpaceRobMean, revDir); % [!HARDCODED!]  [!ADJUST]
+checkParameterRecovery(modSpaceAll, nSim, revDir);
+plotParameterRecovery(modSpaceAll, revDir); % [!HARDCODED!]
+
+% Here, we see that the empirical priors are too narrow for the RW model.
+% We adjusted the width of the prior above to account for that and now
+% disregard the model with the narrow, empirical priors. 
 
 checkModelIdentifiability(nSim, modSpaceAll, revDir);
 plotModelIdentifiability(modSpaceAll, revDir);
@@ -141,7 +147,6 @@ fitData(modSpaceRobMean, data, parallel, local_cores, revDir)
 
 % Accumulate the results. Necessary for some of the plotting. 
 accumulateForPlotting('main', modSpaceRobMean, revDir)
-
 
 %% Compare all models
 
@@ -175,3 +180,5 @@ save([revDir filesep 'model_comparison.mat'], 'posterior', 'out')
 writetable(table(out.Ef, out.ep.', 'VariableNames', {'Ef', 'ep'}), [revDir filesep 'model_comparison_out.csv']);
 winModel = find(out.Ef == max(out.Ef)); % winModel = 2;
 fprintf('\n\nThe winning model is %s!\n\n', out.options.modelNames{winModel})
+
+%% Perform posterior predictive checks

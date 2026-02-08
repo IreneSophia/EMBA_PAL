@@ -24,16 +24,16 @@ res.rec = load(fullfile(saveDir, 'sim', 'recovery_analysis'));
 
 for m = 1:size(modSpace,2)
     
+    names_response   = {'$\beta_0$', '$\beta_1$', '$\beta_2$', ...
+        '$\beta_3$', '$\beta_4$', '$\beta_5$'};
+
     if contains(modSpace(m).name, "HGF")
     
-        names_response   = {'$\beta_0$', '$\beta_1$', '$\beta_2$', ...
-            '$\beta_3$', '$\beta_4$', '$\beta_5$'};
         names_perception = {'$\omega_2$', '$\omega_3$', '$\alpha$'};
 
     elseif contains(modSpace(m).name, "RW")
 
-        names_response   = {'log$\zeta$'};
-        names_perception = {'logit\alpha'};
+        names_perception = {'$logit\alpha$'};
 
     end
 

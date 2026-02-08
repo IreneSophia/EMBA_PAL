@@ -86,7 +86,11 @@ for m = midx
     ylim([low upp])
     % set x limits
     xlim([-15 5])
-    t = '$\omega_2$';
+    if contains(modSpace(m).prc, "hgf")
+        t = '$\omega_2$';
+    else
+        t = '$logit\alpha$';
+    end
     title(t, 'interpreter','latex', 'FontSize', 20);
 
     % add a legend
@@ -94,25 +98,27 @@ for m = midx
         'Interpreter','latex', 'Position', [0.05 0.005 0.9 0.05], 'Orientation', 'horizontal', 'FontSize', 14)
     
     % plot om3
-    if modSpace(m).prc_config.n_levels > 2
-        count = count + 1;
-        subplot(3,3,count);
-        j = 2;
-        plot(x, prc(j).y, 'k', 'LineWidth', 1)
-        hold on
-        plot(x, prc(j).y_prior, 'k--')
-        % add participant data
-        scatter(model(m).prc_est(:,j), zeros(length(model(m).prc_est(:,j)),1), ...
-            20, 'o','MarkerEdgeColor','b','MarkerEdgeAlpha', 0.5, 'LineWidth', 1)
-        hold off
-        % figure out y limits
-        upp = round(max([prc(j).y prc(j).y_prior])*1.05, 2);
-        low = 0 - upp*0.05;
-        ylim([low upp])
-        % set x limits
-        xlim([-15 5])
-        t = '$\omega_3$';
-        title(t, 'interpreter','latex', 'FontSize', 20);
+    if contains(modSpace(m).prc, "hgf")
+        if modSpace(m).prc_config.n_levels > 2
+            count = count + 1;
+            subplot(3,3,count);
+            j = 2;
+            plot(x, prc(j).y, 'k', 'LineWidth', 1)
+            hold on
+            plot(x, prc(j).y_prior, 'k--')
+            % add participant data
+            scatter(model(m).prc_est(:,j), zeros(length(model(m).prc_est(:,j)),1), ...
+                20, 'o','MarkerEdgeColor','b','MarkerEdgeAlpha', 0.5, 'LineWidth', 1)
+            hold off
+            % figure out y limits
+            upp = round(max([prc(j).y prc(j).y_prior])*1.05, 2);
+            low = 0 - upp*0.05;
+            ylim([low upp])
+            % set x limits
+            xlim([-15 5])
+            t = '$\omega_3$';
+            title(t, 'interpreter','latex', 'FontSize', 20);
+        end
     end
 
     %% RESPONSE MODEL

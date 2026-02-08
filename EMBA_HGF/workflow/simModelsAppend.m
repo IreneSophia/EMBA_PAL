@@ -51,7 +51,7 @@ for m = 1:size(modSpace,2)
     %
     % In the original code, the order of the loops was reversed (first over
     % n and then over m) and there was no re-initialization. This has to be
-    % restored for the direct comparisson with Hess et al. results.
+    % restored for the direct comparison with Hess et al. results.
     % Otherwise, the results will not match.
     options = setupOpt_and_randSeed();
 
