@@ -116,10 +116,9 @@ modSpaceAll = [updateModSpace(modSpaceHGF, saveDir) modSpaceRobMean];
 % Here, we assume that the inputs u are the same for everyone
 % We can also decide how verbose the output is supposed to be and the
 % number of maximum tries in case of instability
-% This fails for K1-SUR, so we drop this model here
 verbose = false;
 maxRep  = 10;
-simModelsAppend(modSpaceRobMean, nSim, data(end).u, saveDir, revDir, verbose, maxRep);
+simModelsAppend(modSpaceRobMean, nSim, pilot.data(end).u, saveDir, revDir, verbose, maxRep);
 
 %% Fit all models to simulated data
 % This now also needs to rerun the other models with the current one 
