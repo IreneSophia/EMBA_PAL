@@ -22,11 +22,21 @@ function [] = plotParameterRecovery(modSpace, saveDir)
 res = struct();
 res.rec = load(fullfile(saveDir, 'sim', 'recovery_analysis'));
 
-names_response   = {'$\beta_0$', '$\beta_1$', '$\beta_2$', ...
-    '$\beta_3$', '$\beta_4$', '$\beta_5$'};
-names_perception = {'$\omega_2$', '$\omega_3$', '$\alpha$'};
-
 for m = 1:size(modSpace,2)
+    
+    if contains(modSpace(m).name, "HGF")
+    
+        names_response   = {'$\beta_0$', '$\beta_1$', '$\beta_2$', ...
+            '$\beta_3$', '$\beta_4$', '$\beta_5$'};
+        names_perception = {'$\omega_2$', '$\omega_3$', '$\alpha$'};
+
+    elseif contains(modSpace(m).name, "RW")
+
+        names_response   = {'log$\zeta$'};
+        names_perception = {'logit\alpha'};
+
+    end
+
     npars = length(modSpace(m).prc_idx) + length(modSpace(m).obs_idx);
     nx = ceil(sqrt(npars));
     ny = round(sqrt(npars));
