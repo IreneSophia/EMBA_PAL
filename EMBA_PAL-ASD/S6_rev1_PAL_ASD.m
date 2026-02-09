@@ -59,8 +59,8 @@ addpath([dir_HGF filesep 'workflow']);
 
 % Get the observation and perception model names
 obsNamesDisp = "SUR";
-prcNamesDisp = ["RW", "HGF"];
-prcNamesList = ["tapas_rw_binary", "emba_hgf_2levels_binary_pu_tbt"];
+prcNamesDisp = "RW";
+prcNamesList = "tapas_rw_binary";
 obsNamesList = "emba_logrt_linear_binary_SUR";
 
 % Create a structure with the model space
@@ -92,9 +92,6 @@ accumulateForPlotting('pilots', modSpaceNew, revDir)
 % Plot predicted differences between difficulty & expectedness [!HARDCODED!]
 plotAggLogRTsModel(modSpaceNew, 'pilots', revDir, false, true, pilot.data(end).u) % [!ADJUSTED]
 
-% Plot RTs with yhats [!HARDCODED!]
-plotLogRTsModel(modSpaceNew, 'pilots', revDir, 0, []); 
-
 %% Empirical priors computation
 
 % Compute and save the priors
@@ -106,9 +103,9 @@ plotEmpiricalPriors(modSpaceNew, 'pilots', revDir, []);
 % Update the model space to use empirical priors 
 modSpaceRobMean = updateModSpace(modSpaceNew, revDir);
 
-% Second version of the RW model with a wider prior
-modSpaceRobMean = [modSpaceRobMean modSpaceRobMean(1)];
-modSpaceRobMean(end).name = modSpaceRobMean(1).name + "wide";
+% Second version of the RW model with default priors
+modSpaceRobMean = [modSpaceRobMean modSpaceNew];
+modSpaceRobMean(end).name = modSpaceRobMean(end).name + "default";
 modSpaceRobMean(end).prc_config.logitalsa   = 1;
 modSpaceRobMean(end).prc_config.priorsas(2) = 1;
 
@@ -134,17 +131,17 @@ fitSimDataAppend(modSpaceAll, nSim, parallel, local_cores, saveDir, revDir);
 checkParameterRecovery(modSpaceAll, nSim, revDir);
 plotParameterRecovery(modSpaceAll, revDir); % [!HARDCODED!]
 
-% now we check the model identifiability
-checkModelIdentifiability(nSim, modSpaceAll, revDir); % *** VBA_random: alpha must be a vector of positive values.
-plotModelIdentifiability(modSpaceAll, revDir);
-
-%% Fit the models on the data
-
 % Here, we see that the empirical priors are too narrow for the RW model.
 % We adjusted the width of the prior above to account for that and now
 % disregard the model with the narrow, empirical priors. 
-modSpaceSel = modSpaceAll([1,2,4,5]);
-modSpaceRobMean = modSpaceRobMean(2:3);
+modSpaceSel = modSpaceAll([1,2,end]);
+modSpaceRobMean = modSpaceNew;
+
+% now we check the model identifiability
+checkModelIdentifiability(nSim, modSpaceSel, revDir); % *** VBA_random: alpha must be a vector of positive values.
+plotModelIdentifiability(modSpaceAll, revDir);
+
+%% Fit the models on the data
 
 % Fit the models to the participant data
 fitData(modSpaceRobMean, data, parallel, local_cores, revDir)

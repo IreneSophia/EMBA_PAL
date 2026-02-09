@@ -99,7 +99,7 @@ for m = midx
     
     % plot om3
     if contains(modSpace(m).prc, "hgf")
-        if modSpace(m).prc_config.n_levels > 2
+        if length(modSpace(m).prc_idx) > 1
             count = count + 1;
             subplot(3,3,count);
             j = 2;
