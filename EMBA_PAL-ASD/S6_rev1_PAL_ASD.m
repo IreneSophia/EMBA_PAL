@@ -60,7 +60,7 @@ addpath([dir_HGF filesep 'workflow']);
 % Get the observation and perception model names
 obsNamesDisp = "SUR";
 prcNamesDisp = ["RW", "HGF"];
-prcNamesList = ["tapas_rw_binary", "emba_hgf_binary_pu_tbt"];
+prcNamesList = ["tapas_rw_binary", "emba_hgf_2levels_binary_pu_tbt"];
 obsNamesList = "emba_logrt_linear_binary_SUR";
 
 % Create a structure with the model space
@@ -135,7 +135,7 @@ checkParameterRecovery(modSpaceAll, nSim, revDir);
 plotParameterRecovery(modSpaceAll, revDir); % [!HARDCODED!]
 
 % now we check the model identifiability
-checkModelIdentifiability(nSim, modSpaceAll, revDir);
+checkModelIdentifiability(nSim, modSpaceAll, revDir); % *** VBA_random: alpha must be a vector of positive values.
 plotModelIdentifiability(modSpaceAll, revDir);
 
 %% Fit the models on the data
@@ -171,7 +171,7 @@ for m = 1:size(est,1)
     end
 end
 
-% compare models 
+% compare models over all participants
 options.modelNames = txt;
 options.verbose    = false;
 [posterior, out]   = VBA_groupBMC(LME, options);
