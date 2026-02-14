@@ -104,9 +104,7 @@ for m = 1:nModels
 
         if modSpace(m).obs == "emba_logrt_linear_binary_C"
             pwpe_mat(:,n) = res.est(m,n).traj.epsi(:,3);
-        end
-
-        if modSpace(m).obs == "tapas_logrt_linear_binary"
+        elseif modSpace(m).obs == "tapas_logrt_linear_binary"
             mu3 = res.est(m,n).traj.mu(:,3);
             vol_mat(:,n)  = tapas_sgm(mu2, 1).*(1-tapas_sgm(mu2, 1)).*exp(mu3);
         end
@@ -118,24 +116,21 @@ for m = 1:nModels
     hold on
 
     % Changed the legend too, to correspond to the Lawson model
-    plot(trials, rescale(mean(surp_mat, 2, 'omitnan'),0,1), 'Color', '#648FFF');    
-    plot(trials, rescale(mean(unc1_mat, 2, 'omitnan'),0,1), 'Color', '#785EF0');
-    plot(trials, rescale(mean(unc2_mat, 2, 'omitnan'),0,1), 'Color', '#DC267F');
+    plot(trials, rescale(mean(surp_mat, 2, 'omitnan'),0,1), 'Color', '#D81B60', 'LineWidth', 1);    
+    plot(trials, rescale(mean(unc1_mat, 2, 'omitnan'),0,1), 'Color', '#1E88E5', 'LineWidth', 1);
+    plot(trials, rescale(mean(unc2_mat, 2, 'omitnan'),0,1), 'Color', '#FFC107', 'LineWidth', 1);
     
     % legend text
     txt = {'$surprise$', '$unc_1$', '$unc_2$'};
 
     if modSpace(m).obs == "emba_logrt_linear_binary_C"
         % plot precision-weighted prediction error
-        plot(trials, rescale(mean(pwpe_mat, 2, 'omitnan'),0,1), 'Color', '#FE6100');
+        plot(trials, rescale(mean(pwpe_mat, 2, 'omitnan'),0,1), 'Color', '#004D40', 'LineWidth', 1);
         % add to legend text
         txt = [txt, '$pwPE$'];
-    end
-
-
-    if modSpace(m).obs == "tapas_logrt_linear_binary"
+    elseif modSpace(m).obs == "tapas_logrt_linear_binary"
         % plot phasic volatility
-        plot(trials, rescale(mean(vol_mat, 2, 'omitnan'),0,1), 'Color', '#FFB000')
+        plot(trials, rescale(mean(vol_mat, 2, 'omitnan'),0,1), 'Color', '#004D40', 'LineWidth', 1);
         % add to legend text
         txt = [txt, '$volatility$'];
     end
