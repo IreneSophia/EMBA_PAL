@@ -106,6 +106,8 @@ bmc.opt.modelNames = txt;
 % run BMS for the data generating models
 for m = 1:nModels
     L = rec.model(m).LME';
+    % throw out participants for which L is -Inf or Inf
+    L = L(:,abs(sum(L)) ~= Inf);
     [post, out] = VBA_groupBMC(L, bmc.opt); 
     figpath = fullfile(figdir,...
             ['model_ident_bmc_' convertStringsToChars(modSpace(m).name)]);

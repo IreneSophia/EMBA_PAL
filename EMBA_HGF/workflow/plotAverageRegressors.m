@@ -147,7 +147,7 @@ for m = 1:nModels
     txt = 'response model regressors';
     title(txt, 'Interpreter','latex', 'Fontsize', 20)
     
-    figdir = fullfile(saveDir, 'figures', 'regressors');
+    figdir = fullfile(saveDir, 'figures', subDir, 'regressors');
     if ~exist(figdir, 'dir')
         mkdir(figdir)
     end
