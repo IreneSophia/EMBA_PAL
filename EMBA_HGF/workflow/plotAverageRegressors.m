@@ -102,9 +102,11 @@ for m = 1:nModels
         sa2 = res.est(m,n).traj.sa(:,2);
         unc2_mat(:,n) = tapas_sgm(mu2, 1).*(1 -tapas_sgm(mu2, 1)).*sa2;
 
-        pwpe_mat(:,n) = res.est(m,n).traj.epsi(:,3);
+        if modSpace(m).obs == "emba_logrt_linear_binary_C"
+            pwpe_mat(:,n) = res.est(m,n).traj.epsi(:,3);
+        end
 
-        if modSpace(m).prc_config.n_levels == 3
+        if modSpace(m).obs == "tapas_logrt_linear_binary"
             mu3 = res.est(m,n).traj.mu(:,3);
             vol_mat(:,n)  = tapas_sgm(mu2, 1).*(1-tapas_sgm(mu2, 1)).*exp(mu3);
         end
@@ -119,19 +121,23 @@ for m = 1:nModels
     plot(trials, rescale(mean(surp_mat, 2, 'omitnan'),0,1), 'Color', '#648FFF');    
     plot(trials, rescale(mean(unc1_mat, 2, 'omitnan'),0,1), 'Color', '#785EF0');
     plot(trials, rescale(mean(unc2_mat, 2, 'omitnan'),0,1), 'Color', '#DC267F');
-    plot(trials, rescale(mean(pwpe_mat, 2, 'omitnan'),0,1), 'Color', '#FE6100');
     
     % legend text
-    txt = {'$surprise$', '$unc_1$', '$unc_2$', '$pwPE$'};
+    txt = {'$surprise$', '$unc_1$', '$unc_2$'};
 
-    if modSpace(m).prc_config.n_levels == 3
+    if modSpace(m).obs == "emba_logrt_linear_binary_C"
+        % plot precision-weighted prediction error
+        plot(trials, rescale(mean(pwpe_mat, 2, 'omitnan'),0,1), 'Color', '#FE6100');
+        % add to legend text
+        txt = [txt, '$pwPE$'];
+    end
 
+
+    if modSpace(m).obs == "tapas_logrt_linear_binary"
         % plot phasic volatility
         plot(trials, rescale(mean(vol_mat, 2, 'omitnan'),0,1), 'Color', '#FFB000')
-        
         % add to legend text
         txt = [txt, '$volatility$'];
-
     end
     % input
     input = u(:,1)*1.2;
