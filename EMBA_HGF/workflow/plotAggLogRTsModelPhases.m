@@ -1,4 +1,4 @@
-function [] = plotAggLogRTsModel(modSpace, subDir, saveDir, plotBox, plotLine, input)
+function [] = plotAggLogRTsModelPhases(modSpace, subDir, saveDir, input)
 % Plot comparison of real data and predicted data for conditions
 %
 % !! CAUTION !!: This is HARDCODED for the models used in the EMBA project. 
@@ -12,11 +12,7 @@ function [] = plotAggLogRTsModel(modSpace, subDir, saveDir, plotBox, plotLine, i
 %
 %   saveDir             char array          base output directory
 %
-%   plotBox             boolean             whether to create boxplots
-%
-%   plotLine            boolean             whether to create line graphs
-%
-%   input               structure           structure containing input for model 
+%   input               structure           subject-specific input for model 
 %-----------------------------------------------------------------------------
 %
 % Copyright (C) 2024 Anna Yurova, Irene Sophia Plank, LMU University Hospital;
@@ -46,80 +42,70 @@ tbl = readtable("PAL_scheme.csv");
 coi = {'difficulty', 'expected'}; % conditions of interest
 
 %% aggregate real and predicted data per partipant
+phases = {'prevolatile', 'volatile', 'postvolatile'};
 
 for m = 1:nModels
     % aggregation
-    out = struct();
-    for field = coi
-        opts      = unique(tbl.(field{1}));
-        temp      = table();
-        nrow      = nSubs*length(opts)*2;
-        subs      = nan(nrow,1);
-        cond      = cell(nrow,1);
-        what      = subs;
-        data      = subs;
-        count     = 1;
-        for i = 1:nSubs
-            for j = 1:length(opts)
-                % find the corrisponding indices with difficulty either in
-                % the u itself > different in Lawson and our study < or in
-                % the planned scheme for the models without difficulty
-                if strcmp(field{1}, 'difficulty')
-                    if strcmp(opts{j}, 'easy')
-                        idx = find(input(i).u(:,2) == 0.1);
-                    elseif strcmp(opts{j}, 'medium')
-                        idx = find(input(i).u(:,2) == 0.3);
-                    elseif strcmp(opts{j}, 'difficult')
-                        idx = find(input(i).u(:,2) == 0.9);
+    fout = cell(3,1);
+    for p = 1:3
+        phase = phases{p};
+        out = struct();
+        for field = coi
+            opts      = unique(tbl.(field{1}));
+            temp      = table();
+            nrow      = nSubs*length(opts)*2;
+            subs      = nan(nrow,1);
+            cond      = cell(nrow,1);
+            what      = subs;
+            data      = subs;
+            count     = 1;
+            for i = 1:nSubs
+                for j = 1:length(opts)
+                    % find the corresponding indices with difficulty either in
+                    % the u itself > different in Lawson and our study < or in
+                    % the planned scheme for the models without difficulty
+                    if strcmp(field{1}, 'difficulty')
+                        if strcmp(opts{j}, 'easy')
+                            idx = intersect(find(input(i).u(:,2) == 0.1), find(strcmp(tbl.phase, phase)));
+                        elseif strcmp(opts{j}, 'medium')
+                            idx = intersect(find(input(i).u(:,2) == 0.3), find(strcmp(tbl.phase, phase)));
+                        elseif strcmp(opts{j}, 'difficult')
+                            idx = intersect(find(input(i).u(:,2) == 0.9), find(strcmp(tbl.phase, phase)));
+                        end
+                    else
+                        idx = intersect(find(strcmp(tbl.(field{1}), opts{j})), find(strcmp(tbl.phase, phase)));                    
                     end
-                else
-                    idx = find(strcmp(tbl.(field{1}), opts{j}));                    
+                    subs(count) = i;
+                    what(count) = 0; % logY
+                    cond{count} = opts{j};
+                    data(count) = mean(res.est(m,i).y(idx), 'omitnan');
+                    count = count + 1;
+                    subs(count) = i;
+                    what(count) = 1; % logY
+                    cond{count} = opts{j};
+                    data(count) = mean(res.est(m,i).optim.yhat(idx), 'omitnan');
+                    count = count + 1;
                 end
-                subs(count) = i;
-                what(count) = 0; % logY
-                cond{count} = opts{j};
-                data(count) = mean(res.est(m,i).y(idx), 'omitnan');
-                count = count + 1;
-                subs(count) = i;
-                what(count) = 1; % logY
-                cond{count} = opts{j};
-                data(count) = mean(res.est(m,i).optim.yhat(idx), 'omitnan');
-                count = count + 1;
             end
+            temp.subID = subs;
+            temp.cond  = categorical(cond);
+            temp.real  = categorical(what,[0 1],{'logY','logYhat'});
+            temp.logRT = data;
+            out.(field{1}) = temp;
+            fout{p} = out;
         end
-        temp.subID = subs;
-        temp.cond  = categorical(cond);
-        temp.real  = categorical(what,[0 1],{'logY','logYhat'});
-        temp.logRT = data;
-        out.(field{1}) = temp;
-    end
-    % boxplot graphs
-    if plotBox
-        figure
-        set(gcf, 'Units', 'Normalized', 'OuterPosition', [0 0 0.5 1]);
-        % comparison of the difficulty levels
-        subplot(2,1,1)
-        boxchart(out.difficulty.cond,out.difficulty.logRT,'GroupByColor',out.difficulty.real)
-        ylabel('logRT [ms]', 'FontSize', 14)
-        title('Comparison of subject-specific means of y and yhat', 'FontSize', 20)
-        legend
-        % comparison of the expected levels
-        subplot(2,1,2)
-        boxchart(out.expected.cond,out.expected.logRT,'GroupByColor',out.expected.real)
-        ylabel('logRT [ms]', 'FontSize', 14)
-        % save the plots
-        print(strcat(figdir, filesep, 'aggLogRT_model', modSpace(m).name, '_box'), '-dpng');
-        print(strcat(figdir, filesep, 'aggLogRT_model', modSpace(m).name, '_box'), '-dsvg');
-        close;
     end
     % line graphs
-    if plotLine
-        linesize = 3;
-        figure
-        set(gcf, 'Units', 'Normalized', 'OuterPosition', [0 0 0.5 1]);
-        % comparison of the difficulty levels
-        subplot(2,1,1)
-        x = 1:3;
+    linesize = 3;
+    figure
+    set(gcf, 'Units', 'Normalized', 'OuterPosition', [0 0 0.5 1]);
+    count = 1;
+    % comparison of the difficulty levels
+    x = 1:3;
+    for p = 1:3
+        subplot(2,3,count)
+        out = fout{p};
+        count = count + 1;
         y    = [mean(out.difficulty(out.difficulty.cond == "easy" & out.difficulty.real == "logY", :).logRT),...
             mean(out.difficulty(out.difficulty.cond == "medium" & out.difficulty.real == "logY", :).logRT),...
             mean(out.difficulty(out.difficulty.cond == "difficult" & out.difficulty.real == "logY", :).logRT)];
@@ -141,11 +127,17 @@ for m = 1:nModels
         xticks([1, 2, 3])
         xticklabels({'easy', 'medium', 'difficult'})
         ylabel('logRT [ms]', 'FontSize', 14)
-        title('Comparison of subject-specific means of y and yhat', 'FontSize', 20)
-        legend('y', 'yhat')
-        % comparison of the expected levels
-        subplot(2,1,2)
-        x = 1:2;
+        xlabel(phases{p}, 'FontSize', 14)
+        if p == 1
+            legend('y', 'yhat')
+        end
+    end
+    % comparison of the expected levels
+    x = 1:2;
+    for p = 1:3
+        subplot(2,3,count)
+        out = fout{p};
+        count = count + 1;
         y    = [mean(out.expected(out.expected.cond == "expected" & out.expected.real == "logY", :).logRT),...
             mean(out.expected(out.expected.cond == "unexpected" & out.expected.real == "logY", :).logRT)];
         yerr = [std(out.expected(out.expected.cond == "expected" & out.expected.real == "logY", :).logRT),...
@@ -162,12 +154,13 @@ for m = 1:nModels
         xlim([0, 3])
         xticks([1, 2])
         xticklabels({'expected', 'unexpected'})
+        xlabel(phases{p}, 'FontSize', 14)
         ylabel('logRT [ms]', 'FontSize', 14)
-        % save the plots
-        print(strcat(figdir, filesep, 'aggLogRT_model_', modSpace(m).name, '_line'), '-dpng');
-        print(strcat(figdir, filesep, 'aggLogRT_model_', modSpace(m).name, '_line'), '-dsvg');
-        close;        
     end
+    % save the plots
+    print(strcat(figdir, filesep, 'aggLogRT-phases_model_', modSpace(m).name), '-dpng');
+    print(strcat(figdir, filesep, 'aggLogRT-phases_model_', modSpace(m).name), '-dsvg');
+    close;        
 end
 
 end
