@@ -627,8 +627,6 @@ point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.
         axis.ticks.x=element_blank(), legend.direction = "horizontal",
         legend.title = element_blank())
 
-
-
 ggsave("plots/FigHGF.svg", units = "cm", width = 27, height = 13.5)
 
 
