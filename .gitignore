@@ -7,7 +7,8 @@
 /EMBA_PAL-ASD/_brms_models/m_pal.rds
 /EMBA_PAL-ADHD/_brms_models/m_pal.rds
 /EMBA_PAL-ADHD/HGF_results/sim/model_identifiability.mat 
-/EMBA_PAL-ADHD/HGF_results/rev/sim/model_identifiability.mat 
+/EMBA_PAL-ADHD/HGF_results/addRW/sim/model_identifiability.mat 
+/EMBA_PAL-ADHD/HGF_results/addRW/sim/recovery_analysis.mat 
 /EMBA_PAL-ADHD/HGF_results/sim/recovery_analysis.mat
 /EMBA_PAL-ASD/_brms_models/m_pal-sim.rds
 *.DS_Store
