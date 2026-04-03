@@ -10,7 +10,7 @@ fontsize: 10pt
 #geometry: margin=0.5in
 ---
   
-```{r settings, include=FALSE}
+```{r setup, include=FALSE}
 
 knitr::opts_chunk$set(echo = T, warning = F, message = F, fig.align = 'center', fig.width = 7.4)
 ls.packages = c("knitr",# kable
@@ -154,6 +154,7 @@ names(sigma.prior) = GetPNames(model)
 priors = list(pprior = p.prior, location = mu.prior, scale = sigma.prior)
 
 ```
+
 # Parameter recovery
 
 ```{r rec}
@@ -771,3 +772,149 @@ point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.
 
 ```
 
+# Association of participant-specific drift rate with volatility
+
+```{r combine, fig.height=6, message=T}
+
+# get HGF parameters  
+df.par = merge(df.part %>% mutate(subID = s), 
+               read_csv(file.path("HGF_results/main", "eHGF-L21_results.csv"))) %>%
+  # compute overall drift rate
+  mutate(v = (v.pre + v.vol + v.post)/3)
+
+# get the participant-specific variance 
+load("../data/PAL-ADHD_data.RData")
+
+# calculate participant-specific variance of reaction times
+df.var = df.tsk %>%
+  group_by(subID, diagnosis) %>% 
+  summarise(
+    totaln = n(),
+    valuen = sum(!is.na(rt.cor)),
+    rt.var = sd(rt.cor, na.rm = T)
+  ) %>%
+  mutate(
+    perc = valuen/totaln
+  ) %>% filter(perc >= 2/3) %>%
+  mutate_if(is.character, as.factor) %>% ungroup() %>%
+  merge(., df.par)
+
+# compute correlations
+df.par %>% correlation(select = "v", select2 = "om2", bayesian = T) %>%
+  mutate(
+    `effect size` = interpret_r(rho)
+  )
+
+```
+
+```{r plot_combine, fig.height=4}
+
+df.var %>%
+  ggplot(aes(x = om2, y = v)) + #
+  geom_point(alpha = 0.6) + 
+  geom_smooth(method = "lm") +
+  labs(x = "eHGF: cue-outcome tonic volatility", 
+       y = "DDM: information processing speed") + 
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_blank(), 
+        text = element_text(size = 13), legend.direction = "horizontal",
+        legend.margin=margin(0,0,0,0),
+        legend.box.margin=margin(-5,0,0,0))
+  
+
+```
+
+# Association of participant-specific DDM and HGF parameters with reaction time variance
+
+```{r rtvar}
+
+# build and run the model
+m.var = brm(rt.var ~ be1 + be2 + be3 + ze + om2 + om3 + a + z + v,
+            data = df.var, 
+            prior = c(
+              prior(normal(4.5,  0.50),  class = Intercept),
+              prior(normal(0,    0.50),  class = sigma),
+              prior(normal(0,    0.50),  class = b)
+            ), seed = 4466, file = file.path(brms_dir, "rt_var_part"),
+            family = lognormal,
+            iter = 6000, warmup = 1500,
+            backend = "cmdstanr", threads = threading(2))
+
+# posterior predictive checks
+rstan::check_hmc_diagnostics(m.var$fit)
+
+# check that rhats are below 1.01
+sum(brms::rhat(m.var) >= 1.01, na.rm = T)
+
+# check the trace plots
+post.draws = as_draws_df(m.var)
+mcmc_trace(post.draws, regex_pars = "^b_",
+           facet_args = list(ncol = 3)) +
+  scale_x_continuous(breaks=scales::pretty_breaks(n = 3)) +
+  scale_y_continuous(breaks=scales::pretty_breaks(n = 3))
+```
+
+This all looks good, so let's have a look at the posterior predictions and how they fit the data. 
+
+```{r rtvar2, fig.height = 2}
+
+# check the fit of the predicted data compared to the real data
+pp_check(m.var, ndraws = nsim) + 
+  theme_bw() + theme(legend.position = "none")
+
+```
+
+This also looks good and we move on to our inferences. 
+
+```{r rtvar3, fig.height=8}
+
+# print a summary
+summary(m.var)
+
+# get the posterior probabilites
+e1 = hypothesis(m.var, "a > 0")
+e1
+
+e2 = hypothesis(m.var, "v < 0")
+e2
+
+```
+
+Now, we can plot the differences. 
+
+```{r rtvar4, fig.height=8}
+
+df.var %>%
+  mutate(diagnosis = if_else(diagnosis == "BOTH", "ADHD+ASD", diagnosis)) %>% 
+  select(diagnosis, subID, rt.var, be1, be2, be3, ze, om2, om3, a, z, v) %>%
+  pivot_longer(cols = c('be1', 'be2', 'be3', 'ze', 'om2', 'om3', 'a', 'z', 'v')) %>%
+  mutate(
+    parameter = case_match(name,
+        "be1" ~ "eHGF: simulus surprise",
+        "be2" ~ "eHGF: precision-weighted PE",
+        "be3" ~ "eHGF: phasic volatiliy",
+        "ze" ~ "eHGF: decision noise",
+        "om2" ~ "eHGF: cue-outcome tonic volatility",
+        "om3" ~ "eHGF: environmental tonic volatility",
+        "a" ~ "DDM: response caution",
+        "v" ~ "DDM: information processing speed",
+        "z" ~ "DDM: response bias"
+      )
+  )  %>%
+  ggplot(aes(x = value, y = rt.var, fill = diagnosis, colour = diagnosis)) + #
+  geom_point(alpha = 0.6) + 
+  geom_smooth(method = "lm") +
+  scale_fill_manual(values = col.grp) +
+  scale_color_manual(values = col.grp) +
+  facet_wrap(. ~ parameter, scales = "free", ncol = 2) +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_blank(), 
+        axis.title.y = element_blank(), axis.title.x = element_blank(),
+        text = element_text(size = 13), axis.text.x=element_blank(), 
+        axis.ticks.x=element_blank(), legend.direction = "horizontal",
+        legend.title = element_blank(),
+        legend.margin=margin(0,0,0,0),
+        legend.box.margin=margin(-5,0,0,0))
+  
+
+```
