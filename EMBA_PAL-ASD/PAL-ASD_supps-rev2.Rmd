@@ -1,0 +1,926 @@
+---
+title: "Supplementary materials"
+subtitle: 'Predicting emotional valence in autism: a preregistered study in the Bayesian Brain framework'
+author: "Plank et al."
+date: "`r Sys.Date()`"
+output: 
+  pdf_document:
+    toc: false
+    number_sections: true
+    latex_engine: xelatex
+    extra_dependencies: ["float"]
+fontsize: 10pt
+geometry: margin=0.5in
+header-includes:
+# Add the S before section, figure and table numbers
+- \renewcommand{\thesection}{S\arabic{section}}
+- \renewcommand{\thetable}{S\arabic{table}} 
+- \renewcommand{\thefigure}{S\arabic{figure}} 
+---
+
+```{r setup, include=FALSE}
+
+# clear global environment
+rm(list=ls())
+
+knitr::opts_chunk$set(echo = T, fig.pos = "center",
+                      fig.width = 7.5, fig.height = 4, 
+                      echo=FALSE, message=F, warning=F,
+                      fig.pos = "H", out.extra = "")
+ls.packages = c("knitr",# kable
+    "ggplot2",          # plots
+    "brms",             # Bayesian lmms
+    "designr",          # simLMM
+    "bridgesampling",   # bridge_sampler
+    "tidyverse",        # tibble stuff
+    "ggpubr",           # ggarrange
+    "ggpattern",
+    "correlation",      # pipe-able correlation
+    "ggrain",           # geom_rain
+    "bayesplot",        # plots for posterior predictive checks
+    "SBC",              # plots for checking computational faithfulness
+    "rstatix",          # anova
+    "BayesFactor", 
+    "effectsize",
+    "bayestestR"        # equivalence_test
+)
+
+lapply(ls.packages, library, character.only=TRUE)
+
+# Setup caching of results
+brms_dir = "./_brms_models"
+
+# confidence interval functions
+lower_ci = function(var) {
+  unname(quantile(var, probs = 0.025))
+}
+upper_ci = function(var) {
+  unname(quantile(var, probs = 0.975))
+}
+
+# scale function for vector
+scale_this = function(x){
+  (x - mean(x, na.rm=TRUE)) / sd(x, na.rm=TRUE)
+}
+
+# graph settings 
+c_light = "#a9afb2"; c_light_highlight = "#8ea5b2"; c_mid = "#6b98b2" 
+c_mid_highlight = "#3585b2"; c_dark = "#0072b2"; c_dark_highlight = "#0058b2" 
+c_green = "#009E73"
+sz = 1
+a = 0.5
+
+# custom colour palette
+col.grp = c("#004D40", "#1E88E5")
+col.cnd = c("#5D3A9B", "#E66100")
+col = c("#40B0A6", "#E1BE6A")
+
+# load in task data
+load(file.path("../data", "PAL-ASD_data.RData"))
+
+# load optimal Bayesian Observer parameters
+df.bopars = read_csv(file.path("HGF_results", "rev", "BOpars.csv"))
+
+# read in the subject information
+df.sub = read_csv(file.path("../data", "PAL-sub.csv")) %>%
+  filter(subID %in% unique(df.tsk$subID)) %>%
+  mutate(gender = case_when(gender == "fem" ~ "female", 
+                            gender == "mal" ~ "male"))
+
+# set the seed
+set.seed(2468)
+
+```
+
+<style type="text/css">
+  .main-container {
+    max-width: 1100px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+</style>
+
+# Package versions
+
+The following packages are used in this RMarkdown file: 
+  
+```{r lib_versions, echo=F}
+
+print(R.Version()$version.string)
+
+for (package in ls.packages) {
+  print(sprintf("%s version %s", package, packageVersion(package)))
+}
+
+```
+
+# Methods
+
+## Preprocessing of pupil sizes
+
+We classified any extreme values (above 8 and below 2mm) as well as participant-specific extreme velocities and blinks as artefacts. Then, we low-pass filtered the data with a threshold of 4Hz based on Kret and Sjak-Shie (2019), smoothed the data and interpolated all artefacts shorter than half a second with cubic spline interpolation. Next, data was downsampled to 100Hz and trials with more than one third of the datapoints missing were excluded from analysis. Last, we applied correction based on a baseline of 200ms before onset of the face presentation. We visualised data quality and excluded trials if the pupil trace indicates recording artefacts or baseline artefacts as well as if the baseline pupil size is considered an outlier (absolute z-score larger than 2). 
+
+## Bayesian linear (mixed) models
+
+All contrasts are set to sum coding. The models for the volatilities extracted from the HGF and for the pupil sizes used a Gaussian likelihood, while both the reaction times and learning rate updates were modelled using a lognormal distribution. The reaction time model additionally included a shift. All models included the predictor Group (ASD, COMP). The reaction time model also included Expectancy, Phase and Difficulty as well as all interactions on the population-level, and participant with slopes for Expectancy, Phase, Difficulty and their interactions as well as trials with slopes for Group on the group-level. The hypothesis regarding pupil sizes was evaluated using a model with the predictors Group, Expectancy and their interaction as well as intercepts for the participants on the group-level. Since pupil sizes are sensitive to physical movements (Mathôt & Vilotijević, 2023), we include RT of each trial instead of including trial on the group-level, as preregistered. The model for the learning rate updates included Group, Level (environmental or cue-outcome association) and Change (stable to volatile or volatile to stable) on the population-level as well as participants with slopes for Level and Change on the group-level. 
+
+# Model evaluation
+
+## Parameter recovery and model identifiability
+
+![Enhanced HGF with empirical priors](HGF_results/rev/figures/parameter_recovery/param_rec_eHGF-L17.png)
+
+![Original HGF with empirical priors](HGF_results/rev/figures/parameter_recovery/param_rec_HGF-L17.png)
+
+![Rescorla-Wagner with empirical priors](HGF_results/rev/figures/parameter_recovery/param_rec_RW-SUR.png)
+
+![Rescorla-Wagner with default priors](HGF_results/rev/figures/parameter_recovery/param_rec_RW-SURdefault.png)
+
+![Model identifiability](HGF_results/rev/figures/model_identifiability/model_ident_lme.png)
+
+
+\newpage
+## Posterior predictive checks for oHGF
+
+Here, we compare simulated and observed reaction times. The simulated reaction times were simulated based on the model which best fit the data, namely the original HGF (oHGF). 
+
+```{r eval1, fig.height=6}
+
+col = c("#40B0A6", "#E1BE6A")
+sz  = 3
+
+df.sim = read_csv(file.path("HGF_results", "main", "ppc_data_HGF-L17.csv")) %>% 
+  group_by(subID, trl) %>%
+  summarise(
+    simulated = mean(exp(yhat))
+  )
+
+load("../data/PAL-ASD_data.RData")
+
+df = merge(df.tsk, df.sim) %>%
+  mutate(difficulty = if_else(difficulty == "difficult", "hard", difficulty),
+         difficulty = factor(difficulty, levels = c("easy", "medium", "hard"))) %>%
+  arrange(subID, trl)
+
+# calculate the correlation for behavioural patterns
+kable(df %>% 
+  filter(expected != "neutral") %>% droplevels() %>%
+  group_by(subID, phase, expected, difficulty) %>%
+  summarise(
+    `median observed RT` = median(rt.cor, na.rm = T),
+    `median simulated RT` = median(simulated)
+  ) %>%
+  group_by(phase, expected, difficulty) %>%
+  correlation(select = 'median observed RT', select2 = 'median simulated RT', 
+              bayesian = T) %>%
+    rename(Condition = Group) %>%
+    select(Condition, rho, CI_low, CI_high, pd, BF, n_Obs) %>% arrange(desc(rho)),
+  caption = "Within-condition correlations between median values of simulated and observed reaction times",
+  digits = 3)
+
+# summarise the comparison
+kable(df %>% 
+  filter(expected != "neutral") %>% droplevels() %>%
+  group_by(subID, phase, expected, difficulty) %>%
+  summarise(
+    `median observed` = median(rt.cor, na.rm = T),
+    `median simulated` = median(simulated)
+  ) %>% group_by(phase, expected, difficulty) %>%
+  summarise(
+    `mean observed` = mean(`median observed`),
+    `mean simulated` = mean(`median simulated`),
+    `SD observed` = sd(`median observed`),
+    `SD simulated` = sd(`median simulated`)
+  ), digits = 1,
+  caption = "Within-condition mean and SDs of observed and simulated RTs")
+
+```
+
+![Task development of average log(rt) and simulated log(rt) as well as response model parameters](HGF_results/figures/main/regressors/avg_logRT_regressors_mod_HGF-L17.png)
+
+\newpage
+
+```{r ppc}
+
+df.sim = read_csv(file.path("HGF_results", "main", "ppc_data_HGF-L17.csv")) %>% 
+  mutate(
+    simulated = exp(yhat)
+  )
+
+load("../data/PAL-ASD_data.RData")
+
+df = merge(df.tsk, df.sim) %>%
+  mutate(difficulty = if_else(difficulty == "difficult", "hard", difficulty),
+         difficulty = factor(difficulty, levels = c("easy", "medium", "hard")))
+
+df = df %>%
+  filter(expected != "neutral") %>% droplevels() %>% 
+  group_by(subID, diagnosis, phase, expected, difficulty, trl) %>%
+  summarise(
+    rt.cor    = mean(rt.cor),
+    simulated = mean(exp(yhat))
+  )
+
+# expectancy effect as line plot
+p1 = df %>% 
+  group_by(subID, diagnosis, phase, expected) %>%
+  summarise(rt.sim = median(simulated, na.rm = T),
+            rt.cor = median(rt.cor, na.rm = T)) %>%
+  group_by(subID, diagnosis, phase) %>%
+  summarise(sim  = diff(rt.sim), 
+            real = diff(rt.cor)) %>%
+  pivot_longer(cols = c(sim, real), values_to = "rt", names_to = "type") %>%
+  group_by(diagnosis, phase, type) %>%
+  summarise(
+    rt.mn = mean(rt),
+    rt.se = sd(rt)
+  ) %>%
+  ggplot(aes(y = rt.mn, x = phase, 
+             group = type, colour = type)) +
+  geom_line(position = position_dodge(0.4), linewidth = 1) +
+  geom_errorbar(aes(ymin = rt.mn - rt.se, 
+                    ymax = rt.mn + rt.se), linewidth = 1, width = 0.5, 
+                position = position_dodge(0.4)) + 
+  geom_point(position = position_dodge(0.4), size = 5) + 
+  labs (x = "phase", y = "rt difference (ms)") + 
+  ggtitle("Expectancy effect") + 
+  facet_wrap(. ~ diagnosis) +
+  scale_fill_manual(values = col) +
+  scale_color_manual(values = col) +
+  geom_hline(yintercept = 0) +
+  theme_bw()  + 
+  theme(legend.position = "inside", legend.position.inside = c(0.90, 0.75),
+        axis.title.x = element_blank(), legend.title = element_blank(),
+        legend.direction = "horizontal",
+        plot.title = element_text(hjust = 0.5), text = element_text(size = 13))
+
+# do the same for difficulty effects
+p2 = df %>% filter(difficulty != "medium") %>%
+  group_by(subID, diagnosis, phase, difficulty) %>%
+  summarise(rt.sim = median(simulated, na.rm = T),
+            rt.cor = median(rt.cor, na.rm = T)) %>%
+  group_by(subID, diagnosis, phase) %>%
+  summarise(sim  = diff(rt.sim), 
+            real = diff(rt.cor)) %>%
+  pivot_longer(cols = c(sim, real), values_to = "rt", names_to = "type") %>%
+  group_by(diagnosis, phase, type) %>%
+  summarise(
+    rt.mn = mean(rt),
+    rt.se = sd(rt)
+  ) %>%
+  ggplot(aes(y = rt.mn, x = phase, 
+             group = type, colour = type)) +
+  geom_line(position = position_dodge(0.4), linewidth = 1) +
+  geom_errorbar(aes(ymin = rt.mn - rt.se, 
+                    ymax = rt.mn + rt.se), linewidth = 1, width = 0.5, 
+                position = position_dodge(0.4)) + 
+  geom_point(position = position_dodge(0.4), size = 5) + 
+  labs (x = "phase", y = "rt difference (ms)") + 
+  ggtitle("Difficulty effect") + 
+  facet_wrap(. ~ diagnosis) +
+  scale_fill_manual(values = col) +
+  scale_color_manual(values = col) +
+  theme_bw()  + 
+  geom_hline(yintercept = 0) +
+  theme(legend.position = "none", axis.title.x = element_blank(),
+        text = element_text(size = 13), plot.title = element_text(hjust = 0.5))
+
+p = ggarrange(p1, p2, nrow = 2, ncol = 1)
+ggsave("plots/FigPPC.svg", plot = p, units = "cm", width = 27, height = 13.5)
+
+
+```
+
+
+```{r overlap}
+
+m.real = readRDS(file.path("./_brms_models", "m_pal.rds"))
+
+if (!file.exists(file.path("./_brms_models", "m_pal-sim.rds"))) {
+  m.sim  = update(m.real, newdata = df %>% mutate(rt.cor = simulated))
+  saveRDS(m.sim, file.path("./_brms_models", "m_pal-sim.rds"))
+} else {
+  m.sim = readRDS(file.path("./_brms_models", "m_pal-sim.rds"))
+}
+
+df.post.sim  = as_draws_df(m.sim,  .nchains = 4) %>% 
+  select(starts_with("b_") & !starts_with("b_Intercept"))
+df.post.real = as_draws_df(m.real, .nchains = 4) %>% 
+  select(starts_with("b_") & !starts_with("b_Intercept"))
+
+# loop through all effects
+df.ov = data.frame()
+effects = colnames(df.post.real)
+for (effect in effects) {
+  df.ov = rbind(df.ov, 
+                data.frame(
+                  effect  = effect,
+                  overlap = overlapping::overlap(list(df.post.real[[effect]],df.post.sim[[effect]]))$OV,
+                  observed = mean(df.post.real[[effect]]),
+                  simulated = mean(df.post.sim[[effect]])
+                ))
+}
+
+kable(df.ov %>% arrange(desc(overlap)) %>%
+        rename('estimate based on observed RT' = observed,
+               'estimate based on simulated RT' = simulated), 
+      digits = 4,
+      caption = "Posterior predictive checks: comparison of model based on simulated and model based on observed data")
+
+```
+
+## Comparison of LME across groups
+
+```{r eval2}
+
+aov = readRDS(file.path(brms_dir, "aov_lme.rds"))
+
+aov@denominator
+
+kable(aov@bayesFactor)
+
+```
+
+
+# Volatility parameters and learning rate updates
+
+## Phasic volatility
+
+Phasic volatility was modeled with a Gaussian linear model with one predictor group (ASD = 1, COMP = -1). 
+
+```{r hgf1}
+
+m = readRDS(file.path(brms_dir, "m_hgf_vol.rds"))
+
+kable(fixef(m), digits = 3,
+      caption = "Estimates for the Phasic volatility model")
+
+```
+
+## Environmental tonic volatility
+
+Modelled with a Gaussian linear model with one predictor group (ASD = 1, COMP = -1). 
+
+```{r hgf2}
+
+m = readRDS(file.path(brms_dir, "m_hgf_om3.rds"))
+
+kable(fixef(m), digits = 3,
+      caption = "Estimates for the Environmental tonic volatility model")
+
+```
+
+## Bernoulli model with HGF parameters
+
+We also used an explorative Bernoulli model containint all scaled HGF parameters to predict group membership (ASD, COMP). 
+
+```{r hgf3}
+
+m = readRDS(file.path(brms_dir, "m_hgf_bern.rds"))
+
+kable(fixef(m), digits = 3,
+      caption = "Estimates for the explorative model including all HGF parameters")
+
+
+```
+
+## Learning rate updates
+
+Modelled with a lognormal linear mixed model with the predictors group (ASD, COMP), level (second- or third-level alpha) and change (prevolatile to volatile or volatile to postvolatile phase) and the random intercept for subject and slopes for level and change. 
+
+```{r hgf4}
+
+m = readRDS(file.path(brms_dir, "m_hgf_alpha.rds"))
+
+kable(fixef(m), digits = 3,
+      caption = "Estimates for the Learning rate updates model")
+
+```
+
+```{r hgf5, fig.height=4}
+
+# get posterior predictions
+post.pred = posterior_predict(m, ndraws = 500)
+
+# check the fit of the predicted data compared to the real data
+p1 = pp_check(m, ndraws = 500) + 
+  theme_bw() + theme(legend.position = "none") + xlim(0, 0.50)
+
+# distributions of means compared to the real values per group
+p4 = ppc_stat_grouped(m$data$value, post.pred, m$data$change) + 
+  theme_bw() + theme(legend.position = "none")
+
+p = ggarrange(p1, p4,
+          nrow = 2, ncol = 1)
+annotate_figure(p, top = text_grob("Figure S7: Posterior predictive checks", 
+                                   face = "bold", size = 12))
+
+```
+
+```{r hgf6}
+
+aov = readRDS(file.path(brms_dir, "aov_alpha.rds"))
+
+kable(aov@bayesFactor %>% select(bf) %>% arrange(desc(bf)),
+      digits = 3, 
+      caption = "ANOVA of ranked learning rate updates")
+
+```
+
+# Reaction times, pupil sizes and accuracies
+
+## Reaction times
+
+Reaction times were modelled with a shifted lognormal distribution and the predictors group (ASD, COMP), expected (yes, no), phase (prevolatile, volatile, postvolatile), difficulty (easy, medium, hard) and their interactions. All predictors were sum-coded. Furthermore, we added random intercept for subjects (slopes: expected, phase, difficulty and their interactions) and trials (slope: diagnosis). The full model can be downloaded from OSF: https://osf.io/wkgec. 
+
+```{r rt}
+
+m = readRDS(file.path(brms_dir, "m_pal.rds"))
+
+kable(fixef(m),
+      digits = 3, 
+      caption = "Fixed effects of the reaction time model")
+
+```
+
+```{r plot_rt, fig.height=10}
+
+# rain cloud plot including all factors
+
+m$data %>%
+  ggplot(aes(diagnosis, rt.cor, fill = expected, colour = expected)) + #
+  geom_rain(rain.side = 'r',
+boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
+violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
+boxplot.args.pos = list(
+  position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
+),
+point.args = list(show.legend = FALSE, alpha = .5),
+violin.args.pos = list(
+  width = 0.6, position = position_nudge(x = 0.16)),
+point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
+  scale_fill_manual(values = col.cnd) +
+  scale_color_manual(values = col.cnd) +
+  #ylim(0, 1) +
+  labs(title = "Figure S8: Reaction times per subject", x = "", y = "rt (ms)") +
+  facet_wrap(difficulty ~ phase) +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5), 
+        legend.direction = "horizontal", text = element_text(size = 12))
+
+```
+
+## Pupil sizes
+
+Modeled with a Gaussian linear mixed model, including the predictors group (ASD, COMP) and expected (yes, no) with their interaction as well as the covariate rts and the random intercept for subjects. 
+
+```{r pup}
+
+m = readRDS(file.path(brms_dir, "m_pup.rds"))
+
+kable(fixef(m),
+      digits = 3, 
+      caption = "Fixed effects of the pupil size model")
+
+```
+
+
+```{r plot_pup, fig.height=4}
+
+# rain cloud plot
+m$data %>%
+  group_by(subID, diagnosis, expected) %>%
+  summarise(
+    rel_pupil = mean(rel_pupil)
+  ) %>%
+  ggplot(aes(diagnosis, rel_pupil, fill = expected, colour = expected)) + #
+  geom_rain(rain.side = 'r',
+boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
+violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
+boxplot.args.pos = list(
+  position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
+),
+point.args = list(show.legend = FALSE, alpha = .5),
+violin.args.pos = list(
+  width = 0.6, position = position_nudge(x = 0.16)),
+point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
+  scale_fill_manual(values = col.cnd) +
+  scale_color_manual(values = col.cnd) +
+  labs(title = "Figure S9: Pupil size changes", x = "", y = "change (mm)") +
+  theme_bw() + 
+  theme(legend.position = "bottom", 
+        legend.direction = "horizontal", text = element_text(size = 12), 
+        legend.title = element_blank())
+
+```
+
+
+## Accuracies
+
+ANOVA of the ranked accuracies, including the predictors group (ASD, COMP), expected (yes, no), phase (prevolatile, volatile, postvolatile), difficulty (easy, medium, hard) and their interactions. Since this results in a large number of models, we only print the best 5 models. The full ANOVA is shared on GitHub: https://github.com/IreneSophia/EMBA_PAL/blob/main/EMBA_PAL-ASD/_brms_models/aov_acc.rds. 
+
+```{r acc}
+
+aov = readRDS(file.path(brms_dir, "aov_acc.rds"))
+
+kable(head(aov@bayesFactor %>% select(bf) %>% arrange(desc(bf))),
+      digits = 2, caption = "ANOVA of ranked accuracies")
+
+```
+
+
+```{r plot_acc, fig.height=10}
+
+# rain cloud plot including all factors
+
+aov@data %>%
+  ggplot(aes(expected, acc, fill = diagnosis, colour = diagnosis)) + #
+  geom_rain(rain.side = 'r',
+boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
+violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
+boxplot.args.pos = list(
+  position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
+),
+point.args = list(show.legend = FALSE, alpha = .5),
+violin.args.pos = list(
+  width = 0.6, position = position_nudge(x = 0.16)),
+point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
+  scale_fill_manual(values = col.grp) +
+  scale_color_manual(values = col.grp) +
+  labs(title = "Figure S10: Accuracies per subject", x = "", y = "accuracy (%)") +
+  facet_wrap(phase ~ difficulty) +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5), 
+        legend.direction = "horizontal", text = element_text(size = 12))
+
+```
+
+# Learning rates proper
+
+```{r lr, fig.height=8}
+
+# load optimal Bayesian Observer parameters
+df.bopars = merge(read_csv(file.path("HGF_results", "rev", "BOpars.csv")),
+                  df.tsk %>% select(trl, phase) %>% distinct())
+
+df.bopars.agg = df.bopars %>%
+  group_by(phase) %>%
+  summarise(across(starts_with("alpha"),
+                   .fns = list(median))) %>%
+  pivot_longer(cols = starts_with("alpha"), values_to = "median") %>%
+  mutate(level = gsub("_opt_1", "", name))
+
+# plot of BOpar and subject learning rates
+merge(read_csv(file.path("HGF_results/main", "HGF-L17_traj.csv")),
+      df.tsk %>% select(trl, phase) %>% distinct()) %>%
+  group_by(subID, diagnosis, phase) %>%
+  summarise(across(starts_with("alpha"), mean)) %>%
+  pivot_longer(cols = starts_with("alpha"), names_to = "level") %>% 
+  ggplot(aes(diagnosis, value)) +
+  geom_boxplot(aes(fill = diagnosis)) +
+  scale_fill_manual(values = col.grp) + 
+  scale_color_manual(values = col.grp) +
+  facet_grid(level ~ phase, scales = "free") +
+  geom_hline(data = df.bopars.agg, aes(yintercept = median)) + 
+  labs(title = "Figure S11: Learning rates", x = "", y = "") +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5), 
+        legend.direction = "horizontal", text = element_text(size = 15))
+
+```
+
+# Handedness and button assignment
+
+We counterbalanced whether the left or the right button was to be clicked to indicate a positive valence. Here, we check whether there were any differences between groups in terms of handedness and button assignment. Information on handedness of one participant is missing, because they skipped this question. 
+
+```{r button}
+
+# compare handedness frequencies across groups
+tb.hand = xtabs(~ handedness + diagnosis, data = df.sub)
+ct.hand = contingencyTableBF(tb.hand, 
+                             sampleType = "indepMulti", 
+                             fixedMargin = "cols")
+ct.hand@bayesFactor
+
+# print handedness x group
+kable(df.sub %>% group_by(diagnosis, handedness) %>% count(),
+      caption = "Handedness distribution across groups")
+
+# print handedness, group x button assignment
+kable(df.sub %>% group_by(diagnosis, key_pos, handedness) %>% count(),
+      caption = "Handedness distribution across groups and key assignment")
+
+```
+  
+# Learning rates based on Bayesian Observer
+
+```{r bopar}
+
+# get belief state trajectories
+df.trj = merge(read_csv(file.path("HGF_results/main", "HGF-L17_traj.csv")),
+               df.sub %>% select(subID, gender, diagnosis))
+
+# calculate optimal learning rate updates based on BOpars
+df.bopars.upd = df.bopars %>% 
+  mutate(
+    trl = row_number(),
+    phase = case_when(
+      trl < 73  ~ "pre",
+      trl > 264 ~ "post",
+      trl < 145 ~ "vol1",
+      trl > 192 ~ "vol2"
+    )
+  ) %>% drop_na() %>%
+  group_by(phase) %>%
+  summarise(
+    alpha2 = median(alpha2_opt),
+    alpha3 = median(alpha3_opt)
+  ) %>% 
+  pivot_wider(names_from = phase, values_from = starts_with("alpha")) %>%
+  transmute(
+    alpha2_pre2vol  = abs(alpha2_pre  - alpha2_vol1),
+    alpha2_vol2post = abs(alpha2_post - alpha2_vol2),
+    alpha3_pre2vol  = abs(alpha3_pre  - alpha3_vol1),
+    alpha3_vol2post = abs(alpha3_post - alpha3_vol2)
+  ) %>% 
+  pivot_longer(cols = starts_with("alpha")) %>%
+  separate(name, into = c("level", "change")) %>%
+  mutate(
+    change = case_match(change,
+                        "pre2vol"  ~ "prevolatile to volatile",
+                        "vol2post" ~ "volatile to postvolatile"),
+    level = case_match(level,
+                        "alpha2"  ~ "2nd level learning rate updates",
+                        "alpha3"  ~ "3rd level learning rate updates")
+  )
+kable(df.bopars.upd, 
+  digits = 3,
+  caption = "Learning rate updates based on Bayesian Observer")
+
+# extract the absolute changes in learning rate for the phases
+df.upd = df.trj %>%
+  select(subID, gender, diagnosis, trl, alpha2, alpha3) %>%
+  mutate(
+    phase = case_when(
+      trl < 73  ~ "pre",
+      trl > 264 ~ "post",
+      trl < 145 ~ "vol1",
+      trl > 192 ~ "vol2"
+    )
+  ) %>%
+  drop_na() %>%
+  group_by(subID, diagnosis, gender, phase) %>%
+  summarise(
+    alpha2 = median(alpha2),
+    alpha3 = median(alpha3)
+  ) %>%
+  pivot_wider(names_from = phase, id_cols = c(subID, diagnosis, gender), values_from = starts_with("alpha")) %>%
+  group_by(subID, diagnosis, gender) %>%
+  summarise(
+    alpha2_pre2vol  = abs(alpha2_pre  - alpha2_vol1),
+    alpha2_vol2post = abs(alpha2_post - alpha2_vol2),
+    alpha3_pre2vol  = abs(alpha3_pre  - alpha3_vol1),
+    alpha3_vol2post = abs(alpha3_post - alpha3_vol2)
+  ) %>% 
+  pivot_longer(cols = starts_with("alpha")) %>%
+  separate(name, into = c("level", "change")) %>%
+  mutate_if(is.character, as.factor) 
+
+# create the plot again but with lines for BOpars
+p = df.upd %>%
+  mutate(
+    change = case_match(change,
+                        "pre2vol"  ~ "prevolatile to volatile",
+                        "vol2post" ~ "volatile to postvolatile"),
+    level = case_match(level,
+                        "alpha2"  ~ "2nd level learning rate updates",
+                        "alpha3"  ~ "3rd level learning rate updates")
+  ) %>%
+  ggplot(aes(1, value, fill = diagnosis, colour = diagnosis)) + #
+  geom_rain(rain.side = 'r',
+boxplot.args = list(color = "black", outlier.shape = NA, show.legend = FALSE, alpha = .8),
+violin.args = list(color = "black", outlier.shape = NA, alpha = .8),
+boxplot.args.pos = list(
+  position = ggpp::position_dodgenudge(x = 0, width = 0.3), width = 0.3
+),
+point.args = list(show.legend = FALSE, alpha = .5),
+violin.args.pos = list(
+  width = 0.6, position = position_nudge(x = 0.16)),
+point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.1))) +
+  scale_fill_manual(values = col.grp) +
+  scale_color_manual(values = col.grp) +
+  facet_wrap(level ~ change, scales = "free") +
+  geom_hline(data = df.bopars.upd, aes(yintercept = value)) + 
+  labs(title = "Learning rate updates", x = "", y = "") +
+  theme_bw() + 
+  theme(legend.position = "bottom", plot.title = element_blank(), 
+        legend.direction = "horizontal", text = element_text(size = 13),
+        axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+ggsave("plots/FigHGF_LR-rev.svg", plot = p, units = "cm", width = 27, height = 13.5)
+
+```
+
+# Exploration of gender differences
+
+## Reaction times: expectancy effect
+
+```{r rt_gen, fig.height=4}
+
+df.tsk = merge(df.tsk,
+  df.sub %>%
+    select(subID, diagnosis, gender))
+
+df.tsk %>%
+  filter(expected != "neutral") %>%
+  group_by(subID, diagnosis, gender, phase, expected) %>%
+  summarise(
+    rt.md = median(rt.cor, na.rm = T)
+  ) %>%
+  pivot_wider(values_from = rt.md, names_from = expected) %>%
+  mutate(
+    rt.exp = unexpected - expected
+  ) %>% ungroup() %>%
+  mutate_if(is.character, as.factor) %>%
+  ggplot(., aes(x = phase, y = rt.exp)) +
+  geom_boxplot_pattern(pattern_density = 0.5, aes(fill = diagnosis, pattern = gender)) +
+  scale_pattern_manual(values = c("female" = "none", "male" = "stripe")) + 
+  scale_fill_manual(values = col.grp, guide = guide_legend(override.aes = list(pattern = 'none'))) +
+  scale_color_manual(values = col.grp) +
+  labs(title = "Figure S12: Expectancy effect in RTs including Gender", x = "", y = "rt diff (ms)") +
+  theme_bw() + 
+  theme(legend.position = "bottom", 
+        legend.direction = "horizontal", text = element_text(size = 12))
+
+
+```
+
+## HGF parameters
+
+```{r exp_setup}
+
+df.hgf = merge(df.sub, read_csv(file.path("HGF_results/main", "HGF-L17_results.csv"))) %>%
+  mutate_if(is.character, as.factor)
+
+# set and print the contrasts
+contrasts(df.hgf$diagnosis) = contr.sum(2)
+contrasts(df.hgf$gender) = contr.sum(2)
+
+# set number of iterations and warmup for models
+iter = 3000
+warm = 1000
+
+# model directory
+brms_dir = "./_brms_models"
+
+# model formula
+f.vol = brms::bf( be4 ~ diagnosis * gender )
+
+# set weakly informative priors
+priors = c(
+  prior(normal(0, 4),  class = Intercept),
+  prior(normal(0, 0.50),  class = sigma),
+  prior(normal(0, 0.25),  class = b)
+)
+
+# change Intercept based on empirical priors used in the HGF model
+priors = priors %>%
+  mutate(
+    prior = if_else(
+      class == "Intercept", 
+      gsub("\\(.*,", paste0("(", mean(df.hgf$be4mu), ", "), prior), prior),
+    prior = if_else(
+      class == "Intercept", 
+      gsub(" .*\\)", paste0(" ", mean(df.hgf$be4sa), ")"), prior), prior)
+  )
+
+# fit the model
+m.vol = brm(f.vol, seed = 8822,
+            df.hgf, prior = priors,
+            iter = iter, warmup = warm,
+            backend = "cmdstanr", threads = threading(2),
+            file = file.path(brms_dir, "m_hgf_vol-gen"),
+            save_pars = save_pars(all = TRUE)
+            )
+
+# print the model
+kable(fixef(m.vol),
+      digits = 3, 
+      caption = "Fixed effects of the Phasic environmental volatility model including Gender")
+
+# model formula
+f.om3 = brms::bf( om3 ~ diagnosis * gender )
+
+# change Intercept based on empirical priors used in the HGF model
+priors = priors %>%
+  mutate(
+    prior = if_else(
+      class == "Intercept", 
+      gsub("\\(.*,", paste0("(", mean(df.hgf$om3mu), ", "), prior), prior),
+    prior = if_else(
+      class == "Intercept", 
+      gsub(" .*\\)", paste0(" ", mean(df.hgf$om3sa), ")"), prior), prior)
+  )
+
+# fit the final model
+m.om3 = brm(f.om3, seed = 2288,
+            df.hgf, prior = priors,
+            iter = iter, warmup = warm,
+            backend = "cmdstanr", threads = threading(2),
+            file = file.path(brms_dir, "m_hgf_om3-gen"),
+            save_pars = save_pars(all = TRUE)
+            )
+
+
+kable(fixef(m.om3),
+      digits = 3, 
+      caption = "Fixed effects of the Tonic environmental volatility model including Gender")
+
+```
+
+```{r hgf, fig.height=6}
+
+df.hgf %>%
+  select(subID, gender, diagnosis, be0, be1, be2, be3, be4, ze, om2, om3) %>% #
+  pivot_longer(cols = c(be0, be1, be2, be3, be4, ze, om2, om3), 
+               names_to = "parameter") %>%
+  mutate(
+    parameter = factor(case_match(parameter,
+                           "be0" ~ "predicted log RT",
+                           "be1" ~ "stimulus surprise",
+                           "be2" ~ "stimulus uncertainty",
+                           "be3" ~ "cue-outcome uncertainty",
+                           "be4" ~ "phasic volatility",
+                           "ze"  ~ "Sigma (decision noise)",
+                           "om2" ~ "2nd tonic volatility",
+                           "om3" ~ "3rd tonic volatility"
+                           ), levels = c("2nd tonic volatility", 
+                                         "3rd tonic volatility", 
+                                         "predicted log RT", 
+                                         "stimulus surprise", 
+                                         "stimulus uncertainty",
+                                         "cue-outcome uncertainty", 
+                                         "phasic volatility", 
+                                         "Sigma (decision noise)"))
+  ) %>%
+  filter(!(parameter %in% c("predicted log RT", "Sigma (decision noise)"))) %>%
+  ggplot(aes(x = diagnosis, y = value)) +
+  geom_boxplot_pattern(pattern_density = 0.5, aes(fill = diagnosis, pattern = gender)) +
+  scale_pattern_manual(values = c("female" = "none", "male" = "stripe")) + 
+  scale_fill_manual(values = col.grp, guide = guide_legend(override.aes = list(pattern = 'none'))) +
+  scale_color_manual(values = col.grp) +
+  facet_wrap(. ~ parameter, scales = "free", ncol = 3) +
+  labs(title = "Figure S13: HGF parameter", x = "", y = "") +
+  theme_bw() + 
+  theme(legend.position = "bottom", 
+        legend.direction = "horizontal", text = element_text(size = 12))
+
+
+```
+
+## Learning rate updates
+
+
+```{r alpha_aov}
+
+df.upd = df.upd %>% ungroup() %>%
+  mutate(rvalue = rank(value)) %>%
+  mutate_if(is.character, as.factor)
+
+if (!file.exists(file.path(brms_dir, "aov_alpha-gen.rds"))) {
+  aov = anovaBF(rvalue ~ gender * diagnosis * level * change, data = df.upd)
+  saveRDS(aov, file.path(brms_dir, "aov_alpha-gen.rds"))
+} else {
+  aov = readRDS(file.path(brms_dir, "aov_alpha-gen.rds"))
+}
+
+kable(head(aov@bayesFactor %>% arrange(desc(bf)) %>%
+  select(bf) %>% mutate(bf.diff = abs(lead(bf)-bf),
+                        bf.int  = interpret_bf(bf.diff, log = T))), digits = 3,
+  caption = "ANOVA investigating learning rate updates including the predictor Gender (5 best models)")
+
+```
+
+```{r alpha, fig.height=8}
+
+df.upd %>%
+  mutate(
+    change = case_match(change,
+                        "pre2vol"  ~ "prevolatile to volatile",
+                        "vol2post" ~ "volatile to postvolatile"),
+    level = case_match(level,
+                        "alpha2"  ~ "2nd level learning rate updates",
+                        "alpha3"  ~ "3rd level learning rate updates")
+  ) %>%
+  ggplot(aes(diagnosis, value)) +
+  geom_boxplot_pattern(pattern_density = 0.5, aes(fill = diagnosis, pattern = gender)) +
+  scale_pattern_manual(values = c("female" = "none", "male" = "stripe")) + 
+  scale_fill_manual(values = col.grp, guide = guide_legend(override.aes = list(pattern = 'none'))) + 
+  scale_color_manual(values = col.grp) +
+  facet_wrap(level ~ change, scales = "free") +
+  labs(title = "Figure S14: Learning rate updates", x = "", y = "") +
+  theme_bw() + 
+  theme(legend.position = "bottom", 
+        legend.direction = "horizontal", text = element_text(size = 12))
+
+```
