@@ -1,7 +1,6 @@
 ---
 title: "Supplementary materials"
-subtitle: 'Bayesian Brain in ADHD: potential catecholaminergic
-pathway of volatility estimation'
+subtitle: 'Potential catecholaminergic pathway of volatility estimation in attention-deficit/hyperactivity disorder'
 author: "Plank et al."
 date: "`r Sys.Date()`"
 output: 
@@ -38,11 +37,12 @@ ls.packages = c("knitr",# kable
     "SBC",              # plots for checking computational faithfulness
     "rstatix",          # anova
     "BayesFactor", 
-    "effectsize",
-    "bayestestR"        # equivalence_test
+    "easystats"
 )
 
-lapply(ls.packages, library, character.only=TRUE)
+# if packman is not installed yet, install it
+if(!("pacman" %in% installed.packages()[,"Package"])) install.packages("pacman")
+pacman::p_load(char = ls.packages) 
 
 # Setup caching of results
 brms_dir = "./_brms_models"
@@ -109,7 +109,7 @@ Stimuli were created using KDEF pictures of people portraying three expressions:
 
 ## Development of associations across PAL task
 
-```{r eval1, fig.height=6}
+```{r eval1, fig.height=4}
 
 # load the trial order
 df.trl = read_csv('../data/PAL_scheme.csv', show_col_types = F) %>%
@@ -183,7 +183,7 @@ We included only reaction times on correct trials in the analysis of the reactio
 
 m = readRDS(file.path(brms_dir, "m_hgf_om2.rds"))
 
-summary(m)
+kable(model_parameters(m), digits = 2)
 
 ```
 
@@ -193,7 +193,7 @@ summary(m)
 
 m = readRDS(file.path(brms_dir, "m_hgf_bern_adhd.rds"))
 
-summary(m)
+kable(model_parameters(m), digits = 2)
 
 ```
 
@@ -203,7 +203,7 @@ summary(m)
 
 m = readRDS(file.path(brms_dir, "m_hgf_bern_meds.rds"))
 
-summary(m)
+kable(model_parameters(m), digits = 2)
 
 ```
 
@@ -213,7 +213,7 @@ summary(m)
 
 m = readRDS(file.path(brms_dir, "m_hgf_alpha.rds"))
 
-summary(m)
+kable(model_parameters(m), digits = 2)
 
 ```
 
@@ -248,7 +248,7 @@ point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.
 
 m = readRDS(file.path(brms_dir, "m_ddm_v.rds"))
 
-summary(m)
+kable(model_parameters(m), digits = 2)
 
 ```
 
@@ -258,7 +258,7 @@ summary(m)
 
 m = readRDS(file.path(brms_dir, "m_ddm_v3.rds"))
 
-summary(m)
+kable(model_parameters(m), digits = 2)
 
 ```
 
@@ -270,7 +270,7 @@ summary(m)
 
 m = readRDS(file.path(brms_dir, "m_var.rds"))
 
-summary(m)
+kable(model_parameters(m), digits = 2)
 
 ```
 
@@ -304,7 +304,7 @@ m$data %>%
 
 m = readRDS(file.path(brms_dir, "m_pal.rds"))
 
-summary(m)
+kable(model_parameters(m), digits = 2)
 
 ```
 
@@ -339,7 +339,7 @@ point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.
 
 m = readRDS(file.path(brms_dir, "m_pup.rds"))
 
-summary(m)
+kable(model_parameters(m), digits = 2)
 
 ```
 
@@ -376,13 +376,15 @@ point.args.pos = list(position = ggpp::position_dodgenudge(x = -0.25, width = 0.
 
 ## Accuracies
 
+Since the number of models which are compared is very high with 166, we only print the best 10 models. 
+
 ```{r acc}
 
 aov.acc = readRDS(file.path(brms_dir, "aov_acc.rds"))
 
 aov.acc@denominator
 
-kable(aov.acc@bayesFactor %>% select(bf) %>% arrange(desc(bf)),
+kable(head(aov.acc@bayesFactor %>% select(bf) %>% arrange(desc(bf)), n = 10),
       digits = 2)
 
 ```
